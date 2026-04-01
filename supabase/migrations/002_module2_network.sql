@@ -27,12 +27,7 @@ CREATE TABLE referrers (
   status            referrer_status NOT NULL DEFAULT 'new',
   total_referrals   INTEGER NOT NULL DEFAULT 0,
   last_referral_at  TIMESTAMPTZ,
-  days_since_last   INTEGER GENERATED ALWAYS AS (
-    CASE
-      WHEN last_referral_at IS NULL THEN NULL
-      ELSE EXTRACT(DAY FROM NOW() - last_referral_at)::INTEGER
-    END
-  ) STORED,
+  days_since_last   INTEGER, -- computed in queries: EXTRACT(DAY FROM NOW()-last_referral_at)
   is_deleted        BOOLEAN NOT NULL DEFAULT FALSE,
   imported_from_seed UUID REFERENCES peer_seeds(id),
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),

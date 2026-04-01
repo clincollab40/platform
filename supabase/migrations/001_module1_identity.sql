@@ -95,12 +95,7 @@ CREATE TABLE peer_seeds (
   peer_phone        TEXT,
   status            peer_seed_status NOT NULL DEFAULT 'seeded',
   last_referral_at  TIMESTAMPTZ,
-  days_since_last   INTEGER GENERATED ALWAYS AS (
-    CASE
-      WHEN last_referral_at IS NULL THEN NULL
-      ELSE EXTRACT(DAY FROM NOW() - last_referral_at)::INTEGER
-    END
-  ) STORED,
+  days_since_last   INTEGER, -- computed in queries: EXTRACT(DAY FROM NOW()-last_referral_at)
   seeded_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
