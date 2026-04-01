@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import Image from 'next/image'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import {
   createProtocolAction,
@@ -81,7 +81,6 @@ export default function ProtocolBuilderClient({
   templates: Template[]
 }) {
   const router = useRouter()
-  const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
 
   const [questions, setQuestions] = useState<TriageQuestion[]>(
@@ -101,7 +100,7 @@ export default function ProtocolBuilderClient({
   const [previewMode, setPreviewMode] = useState(false)
   const [previewAnswers, setPreviewAnswers] = useState<Record<string, string>>({})
 
-  const protocolId = searchParams.get('protocol')
+  const protocolId = selectedProtocol?.id ?? null
 
   // ── Question CRUD ──────────────────────────────
   function addQuestion() {

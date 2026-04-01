@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import Image from 'next/image'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import {
   broadcastAction, addStakeholderAction, populateStakeholdersAction,
@@ -61,7 +61,6 @@ export default function CommsDashboardClient({
   escalations: any[]; milestones: any[]; adherence: any[]; templates: any[]
 }) {
   const router = useRouter()
-  const searchParams = useSearchParams()
   const planId = plan.id
 
   const [isPending, startTransition] = useTransition()
