@@ -131,9 +131,9 @@ CREATE TABLE procedure_protocols (
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_protocols_specialist ON procedure_protocols(specialist_id);
-CREATE INDEX idx_protocols_specialty  ON procedure_protocols(specialty_context);
-CREATE INDEX idx_protocols_active     ON procedure_protocols(specialist_id, is_active);
+CREATE INDEX idx_proc_protocols_specialist ON procedure_protocols(specialist_id);
+CREATE INDEX idx_proc_protocols_specialty  ON procedure_protocols(specialty_context);
+CREATE INDEX idx_proc_protocols_active     ON procedure_protocols(specialist_id, is_active);
 
 -- ─────────────────────────────────────────────────────────────
 -- TABLE: procedure_plans

@@ -134,7 +134,7 @@ CREATE TABLE triage_sessions (
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_sessions_specialist ON triage_sessions(specialist_id);
+CREATE INDEX idx_triage_sessions_specialist ON triage_sessions(specialist_id);
 CREATE INDEX idx_sessions_appointment ON triage_sessions(appointment_id);
 CREATE INDEX idx_sessions_referral ON triage_sessions(referral_case_id);
 CREATE INDEX idx_sessions_token ON triage_sessions(access_token);
