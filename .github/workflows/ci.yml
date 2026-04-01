@@ -10,6 +10,9 @@ jobs:
   test:
     name: Test and lint
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
 
     steps:
       - name: Checkout
@@ -19,10 +22,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Lint
         run: npm run lint
@@ -41,3 +43,4 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           NEXT_PUBLIC_APP_URL: https://app.clincollab.com
           ADMIN_EMAIL_WHITELIST: ${{ secrets.ADMIN_EMAIL_WHITELIST }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
