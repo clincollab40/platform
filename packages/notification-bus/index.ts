@@ -156,7 +156,6 @@ export const Templates = {
 
   synthesisUrgentFlag: (specialist: string, patient: string, flags: string, briefUrl: string) =>
     `ClinCollab — 🔴 Clinical brief — URGENT FLAGS\n\nDr. ${specialist},\n\n${patient} synthesis flagged:\n\n${flags}\n\nBrief: ${briefUrl}`,
-}
 
   // M7 — Transcription
   transcriptionReady: (specialist: string, patient: string, url: string) =>
@@ -170,3 +169,4 @@ export const Templates = {
 
   referrerConsultUpdate: (referrer: string, patient: string, specialist: string, summary: string) =>
     `ClinCollab — Consultation update for ${patient}\n\nDr. ${referrer},\n\nDr. ${specialist} has completed a consultation with ${patient}.\n\n${summary}`,
+}
