@@ -178,7 +178,7 @@ async function importGenerators() {
 
 // ── Inline fallback generators (identical to pipeline, self-contained) ──
 async function inlinePPTX(sections: any[], evidenceBlocks: any[], req: any, includeTier2: boolean, _rid: string, _sid: string) {
-  const PptxGenJS = require('/home/claude/.npm-global/lib/node_modules/pptxgenjs')
+  const PptxGenJS = require('pptxgenjs')
   const pptx = new PptxGenJS()
   pptx.layout = 'LAYOUT_16x9'
 
@@ -214,7 +214,7 @@ async function inlinePPTX(sections: any[], evidenceBlocks: any[], req: any, incl
 }
 
 async function inlineDOCX(sections: any[], evidenceBlocks: any[], req: any, includeTier2: boolean) {
-  const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, BorderStyle, LevelFormat, Header, Footer, TabStopType, SimpleField } = require('/home/claude/.npm-global/lib/node_modules/docx')
+  const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, BorderStyle, LevelFormat, Header, Footer, TabStopType, SimpleField } = require('docx')
   const body: any[] = []
 
   body.push(new Paragraph({ spacing: { before: 0, after: 200 },
