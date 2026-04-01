@@ -571,7 +571,7 @@ async function generatePPTX(
   requestId: string,
   specialistId: string
 ): Promise<{ buffer: Buffer; filename: string }> {
-  const PptxGenJS = require('/home/claude/.npm-global/lib/node_modules/pptxgenjs')
+  const PptxGenJS = require('pptxgenjs')
   const pptx = new PptxGenJS()
 
   // Template settings
@@ -719,7 +719,7 @@ async function generateDOCX(
     Document, Packer, Paragraph, TextRun, HeadingLevel,
     AlignmentType, BorderStyle, WidthType, ShadingType, LevelFormat,
     Header, Footer, SimpleField, TabStopType
-  } = require('/home/claude/.npm-global/lib/node_modules/docx')
+  } = require('docx')
 
   const NAVY   = '1A3A5C'
   const FOREST = '1A6B3C'
