@@ -1,0 +1,17 @@
+{
+  "name": "@clincollab/content-agent",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./content-pipeline.ts",
+  "exports": {
+    "./content-pipeline": "./content-pipeline.ts"
+  },
+  "dependencies": {
+    "@clincollab/types": "*",
+    "@clincollab/shared-utils": "*",
+    "groq-sdk": "^0.3.0",
+    "@supabase/supabase-js": "^2.43.0",
+    "docx": "*",
+    "pptxgenjs": "*"
+  }
+}
