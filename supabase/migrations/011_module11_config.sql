@@ -230,14 +230,15 @@ CREATE INDEX idx_flag_registry_module ON feature_flag_registry(module_key);
 -- Immutable — append-only.
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE usage_events (
-  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id              UUID NOT NULL DEFAULT uuid_generate_v4(),
   org_id          UUID NOT NULL REFERENCES organisations(id),
   specialist_id   UUID REFERENCES specialists(id),
   module_key      module_key NOT NULL,
   event_type      TEXT NOT NULL,      -- 'referral_created', 'content_generated', 'triage_sent' etc.
   metadata        JSONB DEFAULT '{}', -- additional context
   billed          BOOLEAN DEFAULT FALSE,
-  event_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  event_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (id, event_at)          -- partition key must be part of PK
 ) PARTITION BY RANGE (event_at);
 
 -- Partition by month for performance
