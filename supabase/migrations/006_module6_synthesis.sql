@@ -194,8 +194,8 @@ SELECT
   apt.patient_mobile      AS appt_mobile,
   apt.reason              AS appointment_reason,
   apt.status              AS appointment_status,
-  apt.slot_date,
-  apt.slot_time
+  aslot.slot_date,
+  aslot.slot_time
 
 FROM triage_sessions s
 LEFT JOIN referral_cases rc
@@ -207,7 +207,8 @@ LEFT JOIN appointments apt
   AND (
     apt.id = s.appointment_id
     OR (apt.referral_case_id = rc.id AND apt.status = 'confirmed')
-  );
+  )
+LEFT JOIN appointment_slots aslot ON aslot.id = apt.slot_id;
 
 -- ─────────────────────────────────────────────
 -- VIEW: v_latest_module_health
