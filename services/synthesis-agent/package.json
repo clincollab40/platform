@@ -1,0 +1,23 @@
+{
+  "name": "@clincollab/synthesis-agent",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./orchestrator.ts",
+  "exports": {
+    "./orchestrator": "./orchestrator.ts",
+    "./agent-tools": "./agent-tools.ts"
+  },
+  "scripts": {
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@clincollab/types": "*",
+    "@clincollab/shared-utils": "*",
+    "@clincollab/notification-bus": "*",
+    "groq-sdk": "^0.3.0",
+    "@supabase/supabase-js": "^2.43.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

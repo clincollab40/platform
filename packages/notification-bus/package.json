@@ -1,0 +1,16 @@
+{
+  "name": "@clincollab/notification-bus",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./index.ts",
+  "scripts": {
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@clincollab/types": "*",
+    "@clincollab/shared-utils": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "@clincollab/shared-utils",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./resilience.ts",
+  "exports": {
+    "./resilience": "./resilience.ts"
+  },
+  "scripts": {
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@clincollab/types": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

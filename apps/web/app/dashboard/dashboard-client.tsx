@@ -5,7 +5,6 @@ import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { useConfig } from '@/hooks/useConfig'
 
 // ── Types ──────────────────────────────────────────
 type Specialist = {
@@ -417,30 +416,7 @@ export default function DashboardClient({ specialist, peers, isNewlyOnboarded, u
         )}
 
 
-
-        {/* ── Clinical Content Engine card ── */}
-        <div
-          className="card-clinical cursor-pointer hover:shadow-clinical-md transition-all"
-          onClick={() => router.push('/content')}
-        >
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 bg-teal-50 rounded-xl flex items-center justify-center flex-shrink-0">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-teal-600">
-                <path d="M9 12h6M9 16h6M9 8h6M5 4h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </div>
-            <div className="flex-1">
-              <div className="text-sm font-medium text-navy-800 mb-0.5">Clinical Content Engine</div>
-              <div className="text-xs text-navy-800/50 leading-relaxed">
-                Generate CME presentations, grand rounds, referral guides and protocols — 
-                sourced from live medical literature and cited in Vancouver format.
-              </div>
-            </div>
-            <ChevronRight />
-          </div>
-        </div>
-
-        {/* ── 360° Synthesis quick-access card ── */
+        {/* ── 360° Synthesis quick-access card ── */}
         <div
           className="card-clinical cursor-pointer hover:shadow-clinical-md transition-all"
           onClick={() => router.push('/synthesis')}
@@ -466,18 +442,16 @@ export default function DashboardClient({ specialist, peers, isNewlyOnboarded, u
         {/* ── Module navigation strip ── */}
         <div className="grid grid-cols-4 gap-2">
           {[
-            { label: 'Referrals',    path: '/referrals',       color: 'text-navy-800',   module: 'm3_referrals' },
-            { label: 'Triage',       path: '/triage/sessions', color: 'text-teal-700',   module: 'm5_triage' },
+            { label: 'Referrals',    path: '/referrals',    color: 'text-navy-800' },
+            { label: 'Triage',       path: '/triage/sessions', color: 'text-teal-700' },
             { label: 'Appointments', path: '/appointments', color: 'text-forest-700' },
-            { label: 'Chatbot',      path: '/chatbot/config', color: 'text-amber-700',  module: 'm4_chatbot' },
-            { label: 'Transcription', path: '/transcription',   color: 'text-purple-700', module: 'm7_transcription' },
-            { label: 'Procedures',   path: '/procedures',       color: 'text-red-700',    module: 'm8_procedure_planner' },
-            { label: 'Content',      path: '/content',          color: 'text-teal-700',   module: 'm10_content' },
+            { label: 'Chatbot',      path: '/chatbot/config', color: 'text-amber-700' },
+            { label: 'Transcription', path: '/transcription',    color: 'text-purple-700' },
+            { label: 'Procedures',   path: '/procedures',       color: 'text-red-700' },
           ].map(m => (
             <button
               key={m.label}
               onClick={() => router.push(m.path)}
-              style={{ display: m.module && !checkModule(m.module) ? 'none' : undefined }}
               className="card-clinical text-center py-3 hover:bg-navy-50 transition-colors"
             >
               <div className={`text-xs font-medium ${m.color}`}>{m.label}</div>

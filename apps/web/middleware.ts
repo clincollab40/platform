@@ -12,20 +12,6 @@ const PUBLIC_ROUTES = [
 
 const ADMIN_ROUTES = ['/admin']
 
-// Route → module key mapping for M11 access enforcement
-const ROUTE_MODULE_MAP: Record<string, string> = {
-  '/network':       'm2_network',
-  '/referrals':     'm3_referrals',
-  '/refer':         'm3_referrals',
-  '/chatbot':       'm4_chatbot',
-  '/appointments':  'm4_chatbot',
-  '/triage':        'm5_triage',
-  '/synthesis':     'm6_synthesis',
-  '/transcription': 'm7_transcription',
-  '/procedures':    'm8_procedure_planner',
-  '/content':       'm10_content',
-}
-
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
@@ -66,34 +52,6 @@ export async function middleware(request: NextRequest) {
       const url = request.nextUrl.clone()
       url.pathname = '/dashboard'
       return NextResponse.redirect(url)
-    }
-  }
-
-  // M11: Module access enforcement at route level
-  // Only enforce for authenticated users on module-specific routes
-  if (user && !isAdminRoute && !isPublicRoute) {
-    const matchedRoute = Object.keys(ROUTE_MODULE_MAP).find(r => pathname.startsWith(r))
-
-    if (matchedRoute) {
-      const moduleKey = ROUTE_MODULE_MAP[matchedRoute]
-      try {
-        // Fast check via DB function (< 10ms with connection pooling)
-        const { data: hasAccess } = await supabase.rpc('check_module_access', {
-          p_specialist_id: user.id,  // Note: uses google_id, resolved in DB function
-          p_module_key:    moduleKey,
-        })
-
-        // Only redirect on explicit FALSE — fail-open on null/error
-        if (hasAccess === false) {
-          const url = request.nextUrl.clone()
-          url.pathname = '/dashboard'
-          url.searchParams.set('module_blocked', moduleKey)
-          return NextResponse.redirect(url)
-        }
-      } catch {
-        // Fail-open: if config check fails, allow access
-        // Never block a doctor from accessing the platform due to a config service failure
-      }
     }
   }
 

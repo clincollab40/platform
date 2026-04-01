@@ -1,0 +1,94 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=Instrument+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-cormorant: 'Cormorant Garamond', Georgia, serif;
+  --font-instrument: 'Instrument Sans', system-ui, sans-serif;
+  --font-dm-mono: 'DM Mono', Menlo, monospace;
+
+  /* Brand tokens */
+  --cc-navy:        #1A5276;
+  --cc-forest:      #1E8449;
+  --cc-blue-accent: #5DADE2;
+  --cc-green-accent:#58D68D;
+  --cc-light-bg:    #F4F6F9;
+  --cc-border:      rgba(26,82,118,0.12);
+  --cc-shadow:      0 1px 3px 0 rgba(26,82,118,0.08);
+}
+
+@layer base {
+  * { box-sizing: border-box; }
+
+  html {
+    font-family: var(--font-instrument);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background: var(--cc-light-bg);
+    color: #1a1a2e;
+    min-height: 100vh;
+  }
+
+  /* Clinical typography */
+  h1, h2, h3 {
+    font-family: var(--font-cormorant);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+
+  /* Scrollbar — subtle, clinical */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(26,82,118,0.2); border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(26,82,118,0.4); }
+}
+
+@layer components {
+  /* Primary button */
+  .btn-primary {
+    @apply bg-navy-800 text-white rounded-xl px-6 py-3 font-sans font-medium
+           text-sm transition-all duration-200 hover:bg-navy-900 active:scale-95
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* Secondary button */
+  .btn-secondary {
+    @apply bg-white text-navy-800 border border-navy-800/20 rounded-xl px-6 py-3
+           font-sans font-medium text-sm transition-all duration-200
+           hover:bg-navy-50 active:scale-95;
+  }
+
+  /* Clinical card */
+  .card-clinical {
+    @apply bg-white rounded-2xl border border-navy-800/10 shadow-clinical p-5;
+  }
+
+  /* Input field */
+  .input-clinical {
+    @apply w-full bg-white border border-navy-800/20 rounded-xl px-4 py-3
+           text-sm font-sans placeholder:text-gray-400 focus:outline-none
+           focus:ring-2 focus:ring-navy-800/20 focus:border-navy-800/40
+           transition-all duration-200;
+  }
+
+  /* Status dot */
+  .status-active  { @apply bg-green-400 rounded-full; }
+  .status-drifting{ @apply bg-amber-400 rounded-full; }
+  .status-silent  { @apply bg-red-400 rounded-full; }
+  .status-new     { @apply bg-blue-400 rounded-full; }
+
+  /* Section heading */
+  .section-heading {
+    @apply font-display text-2xl text-navy-800 font-medium;
+  }
+
+  /* Data label */
+  .data-label {
+    @apply font-mono text-2xs text-navy-800/50 uppercase tracking-wider;
+  }
+}

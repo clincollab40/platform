@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "es2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "plugins": [{ "name": "next" }],
+    "paths": {
+      "@/*": ["./*"],
+      "@clincollab/types": ["../../packages/types/index.ts"],
+      "@clincollab/shared-utils/resilience": ["../../packages/shared-utils/resilience.ts"],
+      "@clincollab/notification-bus": ["../../packages/notification-bus/index.ts"],
+      "@clincollab/synthesis-agent/orchestrator": ["../../services/synthesis-agent/orchestrator.ts"],
+      "@clincollab/synthesis-agent/agent-tools": ["../../services/synthesis-agent/agent-tools.ts"]
+    }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
+}
