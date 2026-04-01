@@ -567,7 +567,7 @@ INSERT INTO plan_definitions (
   ARRAY[]::module_key[],
   1, 50, 0, 0, 1.0,
   '{}'::JSONB,
-  ARRAY[],
+  ARRAY[]::TEXT[],
   ARRAY['pdf']
 );
 
