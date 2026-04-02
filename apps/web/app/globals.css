@@ -58,29 +58,35 @@
 
   /* Secondary button */
   .btn-secondary {
-    @apply bg-white text-navy-800 border border-navy-800/20 rounded-xl px-6 py-3
+    @apply bg-white text-navy-800 rounded-xl px-6 py-3
            font-sans font-medium text-sm transition-all duration-200
            hover:bg-navy-50 active:scale-95;
+    border: 1px solid rgba(26,82,118,0.20);
   }
 
   /* Clinical card */
   .card-clinical {
-    @apply bg-white rounded-2xl border border-navy-800/10 shadow-clinical p-5;
+    @apply bg-white rounded-2xl shadow-clinical p-5;
+    border: 1px solid rgba(26,82,118,0.10);
   }
 
   /* Input field */
   .input-clinical {
-    @apply w-full bg-white border border-navy-800/20 rounded-xl px-4 py-3
+    @apply w-full bg-white rounded-xl px-4 py-3
            text-sm font-sans placeholder:text-gray-400 focus:outline-none
-           focus:ring-2 focus:ring-navy-800/20 focus:border-navy-800/40
            transition-all duration-200;
+    border: 1px solid rgba(26,82,118,0.20);
+  }
+  .input-clinical:focus {
+    border-color: rgba(26,82,118,0.40);
+    box-shadow: 0 0 0 3px rgba(26,82,118,0.08);
   }
 
   /* Status dot */
-  .status-active  { @apply bg-green-400 rounded-full; }
-  .status-drifting{ @apply bg-amber-400 rounded-full; }
-  .status-silent  { @apply bg-red-400 rounded-full; }
-  .status-new     { @apply bg-blue-400 rounded-full; }
+  .status-active   { @apply bg-green-400 rounded-full; }
+  .status-drifting { @apply bg-amber-400 rounded-full; }
+  .status-silent   { @apply bg-red-400 rounded-full; }
+  .status-new      { @apply bg-blue-400 rounded-full; }
 
   /* Section heading */
   .section-heading {
@@ -89,12 +95,14 @@
 
   /* Data label */
   .data-label {
-    @apply font-mono text-2xs text-navy-800/50 uppercase tracking-wider;
+    @apply font-mono text-2xs uppercase tracking-wider;
+    color: rgba(26,82,118,0.50);
   }
 
   /* ── App shell layout ────────────────────────────── */
   .app-shell {
-    @apply flex h-screen overflow-hidden bg-clinical-light;
+    @apply flex h-screen overflow-hidden;
+    background: #F4F6F9;
   }
   .app-main {
     @apply flex-1 flex flex-col min-w-0 overflow-hidden;
@@ -109,8 +117,8 @@
 
   /* ── Sidebar ─────────────────────────────────────── */
   .sidebar-nav {
-    background: #0A1628;
     @apply w-sidebar flex-shrink-0 flex flex-col h-full overflow-y-auto overflow-x-hidden;
+    background: #0A1628;
     border-right: 1px solid rgba(255,255,255,0.07);
   }
   .sidebar-section-label {
@@ -148,14 +156,17 @@
 
   /* ── Metric card ─────────────────────────────────── */
   .metric-card {
-    @apply bg-white rounded-2xl border border-navy-800/8 p-5 flex flex-col gap-2;
+    @apply bg-white rounded-2xl p-5 flex flex-col gap-2;
+    border: 1px solid rgba(26,82,118,0.08);
     box-shadow: 0 1px 3px rgba(26,82,118,0.06);
   }
   .metric-value {
-    @apply font-display text-3xl font-medium text-ink;
+    @apply font-display text-3xl font-medium;
+    color: #0D1B2A;
   }
   .metric-label {
-    @apply text-xs text-ink/50 font-sans;
+    @apply text-xs font-sans;
+    color: rgba(13,27,42,0.50);
   }
   .metric-delta-up {
     @apply text-xs font-medium text-forest-700;
@@ -169,10 +180,12 @@
     @apply mb-6;
   }
   .page-title {
-    @apply font-display text-2xl text-ink font-medium;
+    @apply font-display text-2xl font-medium;
+    color: #0D1B2A;
   }
   .page-subtitle {
-    @apply text-sm text-ink/50 mt-0.5;
+    @apply text-sm mt-0.5;
+    color: rgba(13,27,42,0.50);
   }
 
   /* ── Score ring ──────────────────────────────────── */
@@ -184,9 +197,9 @@
 
   /* ── WhatsApp float ──────────────────────────────── */
   .wa-float {
-    @apply flex items-center justify-center;
-    @apply w-14 h-14 rounded-full shadow-clinical-lg cursor-pointer;
+    @apply flex items-center justify-center w-14 h-14 rounded-full cursor-pointer;
     @apply transition-transform duration-200 hover:scale-110 active:scale-95;
     background: #25D366;
+    box-shadow: 0 4px 12px rgba(37,211,102,0.40);
   }
 }
