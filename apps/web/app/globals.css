@@ -91,4 +91,102 @@
   .data-label {
     @apply font-mono text-2xs text-navy-800/50 uppercase tracking-wider;
   }
+
+  /* ── App shell layout ────────────────────────────── */
+  .app-shell {
+    @apply flex h-screen overflow-hidden bg-clinical-light;
+  }
+  .app-main {
+    @apply flex-1 flex flex-col min-w-0 overflow-hidden;
+  }
+  .app-body {
+    @apply flex flex-1 overflow-hidden;
+  }
+  .app-page {
+    @apply flex-1 overflow-y-auto;
+    padding: 1.5rem;
+  }
+
+  /* ── Sidebar ─────────────────────────────────────── */
+  .sidebar-nav {
+    background: #0A1628;
+    @apply w-sidebar flex-shrink-0 flex flex-col h-full overflow-y-auto overflow-x-hidden;
+    border-right: 1px solid rgba(255,255,255,0.07);
+  }
+  .sidebar-section-label {
+    @apply font-mono text-2xs uppercase tracking-widest px-4 mb-1;
+    color: rgba(255,255,255,0.28);
+  }
+  .sidebar-item {
+    @apply flex items-center gap-3 px-4 py-2.5 mx-2 rounded-xl text-sm font-medium transition-all duration-150 cursor-pointer;
+    color: rgba(255,255,255,0.60);
+  }
+  .sidebar-item:hover {
+    background: rgba(255,255,255,0.06);
+    color: rgba(255,255,255,0.85);
+  }
+  .sidebar-item-active {
+    @apply bg-navy-800 text-white;
+    box-shadow: 0 2px 8px rgba(26,82,118,0.4);
+  }
+  .sidebar-icon {
+    @apply flex-shrink-0;
+    color: inherit;
+  }
+
+  /* ── Top nav ─────────────────────────────────────── */
+  .top-nav {
+    @apply h-14 bg-white flex items-center gap-4 px-6 flex-shrink-0;
+    border-bottom: 1px solid rgba(26,82,118,0.08);
+  }
+
+  /* ── Insight panel ───────────────────────────────── */
+  .insight-panel {
+    @apply w-insight flex-shrink-0 bg-white overflow-y-auto hidden xl:flex flex-col;
+    border-left: 1px solid rgba(26,82,118,0.08);
+  }
+
+  /* ── Metric card ─────────────────────────────────── */
+  .metric-card {
+    @apply bg-white rounded-2xl border border-navy-800/8 p-5 flex flex-col gap-2;
+    box-shadow: 0 1px 3px rgba(26,82,118,0.06);
+  }
+  .metric-value {
+    @apply font-display text-3xl font-medium text-ink;
+  }
+  .metric-label {
+    @apply text-xs text-ink/50 font-sans;
+  }
+  .metric-delta-up {
+    @apply text-xs font-medium text-forest-700;
+  }
+  .metric-delta-down {
+    @apply text-xs font-medium text-red-500;
+  }
+
+  /* ── Page header ─────────────────────────────────── */
+  .page-header {
+    @apply mb-6;
+  }
+  .page-title {
+    @apply font-display text-2xl text-ink font-medium;
+  }
+  .page-subtitle {
+    @apply text-sm text-ink/50 mt-0.5;
+  }
+
+  /* ── Score ring ──────────────────────────────────── */
+  .score-ring circle {
+    fill: none;
+    stroke-width: 10;
+    stroke-linecap: round;
+  }
+
+  /* ── WhatsApp float ──────────────────────────────── */
+  .wa-float {
+    @apply fixed bottom-6 right-6 z-50 flex items-center justify-center;
+    @apply w-14 h-14 rounded-full shadow-clinical-lg cursor-pointer;
+    @apply transition-transform duration-200 hover:scale-110 active:scale-95;
+    background: #25D366;
+  }
 }
