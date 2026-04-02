@@ -17,7 +17,7 @@ import { defineConfig, devices } from '@playwright/test'
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:3000'
 
 export default defineConfig({
-  testDir:        './__tests__/e2e',
+  testDir:        './e2e',
   fullyParallel:  false,          // keep sequential — DB state depends on ordering
   forbidOnly:     !!process.env.CI,
   retries:        process.env.CI ? 2 : 0,
