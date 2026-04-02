@@ -2,13 +2,20 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, sit, demo]
   pull_request:
-    branches: [main]
+    branches: [main, develop, sit]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test:
-    name: Test and lint
+  # ─────────────────────────────────────────────────────────────────
+  # Job 1: Lint + TypeScript type-check
+  # ─────────────────────────────────────────────────────────────────
+  lint-typecheck:
+    name: Lint & TypeScript
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -22,19 +29,81 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Lint
         run: npm run lint
 
-      - name: Run unit tests
-        run: npm run test -- --coverage
+      - name: TypeScript strict check
+        run: npx tsc --noEmit
+
+  # ─────────────────────────────────────────────────────────────────
+  # Job 2: Unit tests (M1-M11) with coverage
+  # ─────────────────────────────────────────────────────────────────
+  unit-tests:
+    name: Unit Tests (M1–M11)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests with coverage
+        run: npm run test -- --coverage --testPathPattern="__tests__/unit" --forceExit
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           NEXT_PUBLIC_APP_URL: http://localhost:3000
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-coverage-${{ github.sha }}
+          path: apps/web/coverage/
+          retention-days: 14
+
+  # ─────────────────────────────────────────────────────────────────
+  # Job 3: Build (Next.js)
+  # ─────────────────────────────────────────────────────────────────
+  build:
+    name: Next.js Build
+    runs-on: ubuntu-latest
+    needs: [lint-typecheck, unit-tests]
+    defaults:
+      run:
+        working-directory: apps/web
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Build
         run: npm run build
@@ -44,3 +113,107 @@ jobs:
           NEXT_PUBLIC_APP_URL: https://app.clincollab.com
           ADMIN_EMAIL_WHITELIST: ${{ secrets.ADMIN_EMAIL_WHITELIST }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+  # ─────────────────────────────────────────────────────────────────
+  # Job 4: E2E tests (Playwright) — only on sit and demo branches
+  # ─────────────────────────────────────────────────────────────────
+  e2e-tests:
+    name: E2E Tests (Playwright)
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref == 'refs/heads/sit' || github.ref == 'refs/heads/demo' || github.ref == 'refs/heads/main'
+    defaults:
+      run:
+        working-directory: apps/web
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        run: npx playwright test --project=chromium
+        env:
+          BASE_URL: ${{ secrets.E2E_BASE_URL || 'https://sit.clincollab.com' }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          E2E_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
+          E2E_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-${{ github.sha }}
+          path: apps/web/playwright-report/
+          retention-days: 14
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-results-${{ github.sha }}
+          path: apps/web/test-results/
+          retention-days: 7
+
+  # ─────────────────────────────────────────────────────────────────
+  # Job 5: NFR / integration tests (run on sit branch)
+  # ─────────────────────────────────────────────────────────────────
+  sit-tests:
+    name: SIT & NFR Tests
+    runs-on: ubuntu-latest
+    needs: [unit-tests]
+    if: github.ref == 'refs/heads/sit' || github.ref == 'refs/heads/main'
+    defaults:
+      run:
+        working-directory: apps/web
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run integration tests
+        run: npm run test -- --testPathPattern="__tests__/integration" --forceExit
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+
+      - name: Run NFR tests
+        run: npm run test -- --testPathPattern="__tests__/nfr" --forceExit
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+
+      - name: Run workflow tests
+        run: npm run test -- --testPathPattern="__tests__/workflow" --forceExit
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
