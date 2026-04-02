@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server'
 import DashboardClient from './dashboard-client'
 
 export default async function DashboardPage({
@@ -7,13 +7,17 @@ export default async function DashboardPage({
 }: {
   searchParams: { onboarded?: string }
 }) {
-  const supabase = await createServerSupabaseClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const authClient = await createServerSupabaseClient()
+  const { data: { user } } = await authClient.auth.getUser()
 
   if (!user) redirect('/auth/login')
 
+  // Use service role for DB queries — RLS auth.uid() context is unreliable
+  // in server components when session was just established
+  const db = createServiceRoleClient()
+
   // Fetch specialist data
-  const { data: specialist } = await supabase
+  const { data: specialist } = await db
     .from('specialists')
     .select(`
       id, name, specialty, city, status, role,
@@ -30,14 +34,14 @@ export default async function DashboardPage({
   if (specialist.status === 'onboarding') redirect('/onboarding')
 
   // Fetch peer seeds for network intelligence
-  const { data: peers } = await supabase
+  const { data: peers } = await db
     .from('peer_seeds')
     .select('*')
     .eq('specialist_id', specialist.id)
     .order('seeded_at', { ascending: false })
 
   // Update last active
-  await supabase
+  await db
     .from('specialists')
     .update({ last_active_at: new Date().toISOString() })
     .eq('id', specialist.id)

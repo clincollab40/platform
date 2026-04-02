@@ -49,7 +49,8 @@ export async function createSpecialistAction(formData: FormData) {
   // auth.uid() correctly inside Next.js Server Actions
   const db = createServiceRoleClient()
 
-  // Check for duplicate
+  // Check for duplicate — return redirect instruction to client instead of
+  // calling redirect() here, which causes a flash in the onboarding UI
   const { data: existing } = await db
     .from('specialists')
     .select('id')
@@ -57,7 +58,7 @@ export async function createSpecialistAction(formData: FormData) {
     .single()
 
   if (existing) {
-    redirect('/dashboard')
+    return { redirect: '/dashboard' }
   }
 
   const { data: specialist, error } = await db

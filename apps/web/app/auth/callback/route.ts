@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server'
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
@@ -11,11 +11,13 @@ export async function GET(request: Request) {
     const { error } = await supabase.auth.exchangeCodeForSession(code)
 
     if (!error) {
-      // Check if specialist profile exists
+      // Check if specialist profile exists — use service role to bypass RLS
+      // since auth.uid() may not propagate correctly right after code exchange
       const { data: { user } } = await supabase.auth.getUser()
 
       if (user) {
-        const { data: specialist } = await supabase
+        const db = createServiceRoleClient()
+        const { data: specialist } = await db
           .from('specialists')
           .select('id, status, onboarding_step')
           .eq('google_id', user.id)

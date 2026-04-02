@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect, Suspense } from 'react'
 import Image from 'next/image'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { createSpecialistAction, seedPeerNetworkAction } from '@/app/actions/auth'
 
@@ -32,10 +32,17 @@ const CITIES = [
 
 type Peer = { name: string; city: string; specialty: string }
 
-export default function OnboardingPage() {
+function OnboardingForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
   const [step, setStep] = useState<1 | 2>(1)
+
+  // If auth callback sent ?step=2, skip to step 2
+  useEffect(() => {
+    const s = searchParams.get('step')
+    if (s === '2') setStep(2)
+  }, [])
 
   // Step 1 state
   const [name, setName] = useState('')
@@ -77,7 +84,9 @@ export default function OnboardingPage() {
       const result = await createSpecialistAction(formData)
       if (result?.error) {
         toast.error(result.error)
-      } else {
+      } else if (result?.redirect) {
+        router.push(result.redirect)
+      } else if (result?.success) {
         setStep(2)
       }
     })
@@ -290,5 +299,17 @@ export default function OnboardingPage() {
         )}
       </div>
     </main>
+  )
+}
+
+export default function OnboardingPage() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen bg-clinical-light flex items-center justify-center">
+        <span className="w-6 h-6 border-2 border-navy-800/20 border-t-navy-800 rounded-full animate-spin" />
+      </main>
+    }>
+      <OnboardingForm />
+    </Suspense>
   )
 }
