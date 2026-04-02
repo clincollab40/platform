@@ -1,6 +1,6 @@
 'use server'
 
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { createClient }                from '@supabase/supabase-js'
 import { redirect }                    from 'next/navigation'
 import { revalidatePath }              from 'next/cache'
@@ -12,9 +12,10 @@ async function boundary<T>(name: string, fn: () => Promise<T>): Promise<BR<T>> {
 }
 
 async function getAuth() {
-  const supabase = await createServerSupabaseClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const authClient = await createServerSupabaseClient()
+  const { data: { user } } = await authClient.auth.getUser()
   if (!user) redirect('/auth/login')
+  const supabase = createServiceRoleClient()
   const { data: s } = await supabase.from('specialists')
     .select('id, name, specialty, whatsapp_number').eq('google_id', user.id).single()
   if (!s) redirect('/onboarding')

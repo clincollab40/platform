@@ -1,6 +1,6 @@
 'use server'
 
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { z } from 'zod'
 
@@ -25,8 +25,9 @@ const PeerSeedSchema = z.object({
 
 // Step 1 — create specialist profile
 export async function createSpecialistAction(formData: FormData) {
-  const supabase = await createServerSupabaseClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  // Use user client only to verify identity
+  const authClient = await createServerSupabaseClient()
+  const { data: { user } } = await authClient.auth.getUser()
 
   if (!user) redirect('/auth/login')
 
@@ -44,8 +45,12 @@ export async function createSpecialistAction(formData: FormData) {
   const adminEmails = (process.env.ADMIN_EMAIL_WHITELIST || '').split(',').map(e => e.trim())
   const role = adminEmails.includes(user.email || '') ? 'admin' : 'specialist'
 
+  // Use service role for all DB writes — bypasses RLS which can't resolve
+  // auth.uid() correctly inside Next.js Server Actions
+  const db = createServiceRoleClient()
+
   // Check for duplicate
-  const { data: existing } = await supabase
+  const { data: existing } = await db
     .from('specialists')
     .select('id')
     .eq('google_id', user.id)
@@ -55,7 +60,7 @@ export async function createSpecialistAction(formData: FormData) {
     redirect('/dashboard')
   }
 
-  const { data: specialist, error } = await supabase
+  const { data: specialist, error } = await db
     .from('specialists')
     .insert({
       google_id: user.id,
@@ -71,17 +76,18 @@ export async function createSpecialistAction(formData: FormData) {
     .single()
 
   if (error || !specialist) {
+    console.error('[createSpecialistAction] insert error:', error)
     return { error: 'Could not create your profile. Please try again.' }
   }
 
   // Record consent
-  await supabase.from('specialist_consents').insert({
+  await db.from('specialist_consents').insert({
     specialist_id: specialist.id,
     consent_version: '1.0',
   })
 
   // Audit log
-  await supabase.from('audit_logs').insert({
+  await db.from('audit_logs').insert({
     actor_id: specialist.id,
     actor_role: role,
     action: 'specialist_registered',
@@ -95,12 +101,16 @@ export async function createSpecialistAction(formData: FormData) {
 
 // Step 2 — seed peer network
 export async function seedPeerNetworkAction(formData: FormData) {
-  const supabase = await createServerSupabaseClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  // Verify identity with user client
+  const authClient = await createServerSupabaseClient()
+  const { data: { user } } = await authClient.auth.getUser()
 
   if (!user) redirect('/auth/login')
 
-  const { data: specialist } = await supabase
+  // Use service role for DB operations
+  const db = createServiceRoleClient()
+
+  const { data: specialist } = await db
     .from('specialists')
     .select('id')
     .eq('google_id', user.id)
@@ -135,20 +145,21 @@ export async function seedPeerNetworkAction(formData: FormData) {
     status: 'seeded' as const,
   }))
 
-  const { error } = await supabase.from('peer_seeds').insert(seedInserts)
+  const { error } = await db.from('peer_seeds').insert(seedInserts)
 
   if (error) {
+    console.error('[seedPeerNetworkAction] insert error:', error)
     return { error: 'Could not save your peer network. Please try again.' }
   }
 
   // Update specialist status to active
-  await supabase
+  await db
     .from('specialists')
     .update({ status: 'active', onboarding_step: 3 })
     .eq('id', specialist.id)
 
   // Audit
-  await supabase.from('audit_logs').insert({
+  await db.from('audit_logs').insert({
     actor_id: specialist.id,
     actor_role: 'specialist',
     action: 'peer_network_seeded',

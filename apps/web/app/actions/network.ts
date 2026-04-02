@@ -1,6 +1,6 @@
 'use server'
 
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { z } from 'zod'
@@ -30,9 +30,10 @@ const NoteSchema = z.object({
 
 // ── Helper: get authenticated specialist ──────────
 async function getSpecialist() {
-  const supabase = await createServerSupabaseClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const authClient = await createServerSupabaseClient()
+  const { data: { user } } = await authClient.auth.getUser()
   if (!user) redirect('/auth/login')
+  const supabase = createServiceRoleClient()
 
   const { data: specialist } = await supabase
     .from('specialists')
