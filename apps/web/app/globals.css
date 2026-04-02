@@ -184,7 +184,7 @@
 
   /* ── WhatsApp float ──────────────────────────────── */
   .wa-float {
-    @apply fixed bottom-6 right-6 z-50 flex items-center justify-center;
+    @apply flex items-center justify-center;
     @apply w-14 h-14 rounded-full shadow-clinical-lg cursor-pointer;
     @apply transition-transform duration-200 hover:scale-110 active:scale-95;
     background: #25D366;

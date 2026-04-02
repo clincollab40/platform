@@ -24,8 +24,7 @@ export default async function NetworkPage({
   if (!specialist) redirect('/onboarding')
 
   // Migrate any unseeded peers first (idempotent)
-  const authSupabase = await createServerSupabaseClient()
-  await authSupabase.rpc('migrate_peer_seeds_to_referrers', {
+  await db.rpc('migrate_peer_seeds_to_referrers', {
     p_specialist_id: specialist.id,
   })
 
