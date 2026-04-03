@@ -15,40 +15,46 @@
 -- ─────────────────────────────────────────────────────────────
 -- ENUMS
 -- ─────────────────────────────────────────────────────────────
-CREATE TYPE transcription_status AS ENUM (
-  'recording',        -- audio being captured
-  'processing',       -- uploaded, Whisper transcribing
-  'extracting',       -- LLM extracting structured note
-  'pending_review',   -- awaiting specialist review
-  'approved',         -- specialist reviewed and approved
-  'sent_to_patient',  -- patient summary dispatched
-  'failed',           -- processing failed
-  'cancelled'         -- specialist discarded
-);
+DO $$ BEGIN
+  CREATE TYPE transcription_status AS ENUM (
+    'recording',        -- audio being captured
+    'processing',       -- uploaded, Whisper transcribing
+    'extracting',       -- LLM extracting structured note
+    'pending_review',   -- awaiting specialist review
+    'approved',         -- specialist reviewed and approved
+    'sent_to_patient',  -- patient summary dispatched
+    'failed',           -- processing failed
+    'cancelled'         -- specialist discarded
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE consultation_type AS ENUM (
-  'new_opd',          -- first outpatient consultation
-  'follow_up',        -- follow-up visit
-  'pre_procedure',    -- pre-procedure assessment/consent
-  'procedure_note',   -- intra/post-procedure note
-  'discharge',        -- discharge summary dictation
-  'emergency',        -- emergency consultation
-  'teleconsult'       -- telephone/video consultation
-);
+DO $$ BEGIN
+  CREATE TYPE consultation_type AS ENUM (
+    'new_opd',          -- first outpatient consultation
+    'follow_up',        -- follow-up visit
+    'pre_procedure',    -- pre-procedure assessment/consent
+    'procedure_note',   -- intra/post-procedure note
+    'discharge',        -- discharge summary dictation
+    'emergency',        -- emergency consultation
+    'teleconsult'       -- telephone/video consultation
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE note_section_type AS ENUM (
-  'history',
-  'examination',
-  'investigations',
-  'assessment',
-  'plan',
-  'medications',
-  'patient_instructions',
-  'follow_up',
-  'procedure_details',
-  'risk_discussion',
-  'custom'
-);
+DO $$ BEGIN
+  CREATE TYPE note_section_type AS ENUM (
+    'history',
+    'examination',
+    'investigations',
+    'assessment',
+    'plan',
+    'medications',
+    'patient_instructions',
+    'follow_up',
+    'procedure_details',
+    'risk_discussion',
+    'custom'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────────────────────
 -- TABLE: note_templates
@@ -57,7 +63,7 @@ CREATE TYPE note_section_type AS ENUM (
 -- Fully customisable — specialist defines which sections appear,
 -- what AI should extract for each, and what goes to the patient
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE note_templates (
+CREATE TABLE IF NOT EXISTS note_templates (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialist_id     UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
   name              TEXT NOT NULL,
@@ -87,9 +93,9 @@ CREATE TABLE note_templates (
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_note_templates_specialist ON note_templates(specialist_id);
-CREATE INDEX idx_note_templates_active ON note_templates(specialist_id, is_active);
-CREATE UNIQUE INDEX idx_note_templates_default
+CREATE INDEX IF NOT EXISTS idx_note_templates_specialist ON note_templates(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_note_templates_active ON note_templates(specialist_id, is_active);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_note_templates_default
   ON note_templates(specialist_id, consultation_type)
   WHERE is_default = TRUE;
 
@@ -99,7 +105,7 @@ CREATE UNIQUE INDEX idx_note_templates_default
 -- NOTE: raw audio is NEVER stored here — only metadata
 -- Audio bytes exist only in memory during Whisper processing
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE transcription_sessions (
+CREATE TABLE IF NOT EXISTS transcription_sessions (
   id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialist_id         UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
   template_id           UUID REFERENCES note_templates(id),
@@ -145,18 +151,18 @@ CREATE TABLE transcription_sessions (
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_transcription_specialist ON transcription_sessions(specialist_id);
-CREATE INDEX idx_transcription_status ON transcription_sessions(status);
-CREATE INDEX idx_transcription_appointment ON transcription_sessions(appointment_id) WHERE appointment_id IS NOT NULL;
-CREATE INDEX idx_transcription_referral ON transcription_sessions(referral_case_id) WHERE referral_case_id IS NOT NULL;
-CREATE INDEX idx_transcription_created ON transcription_sessions(specialist_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_transcription_specialist ON transcription_sessions(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_transcription_status ON transcription_sessions(status);
+CREATE INDEX IF NOT EXISTS idx_transcription_appointment ON transcription_sessions(appointment_id) WHERE appointment_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_transcription_referral ON transcription_sessions(referral_case_id) WHERE referral_case_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_transcription_created ON transcription_sessions(specialist_id, created_at DESC);
 
 -- ─────────────────────────────────────────────────────────────
 -- TABLE: consultation_notes
 -- One structured note per transcription session
 -- AI-generated, specialist-reviewed, specialist-approved
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE consultation_notes (
+CREATE TABLE IF NOT EXISTS consultation_notes (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   session_id        UUID NOT NULL REFERENCES transcription_sessions(id) ON DELETE CASCADE,
   specialist_id     UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
@@ -191,14 +197,14 @@ CREATE TABLE consultation_notes (
   UNIQUE(session_id)
 );
 
-CREATE INDEX idx_notes_session ON consultation_notes(session_id);
-CREATE INDEX idx_notes_specialist ON consultation_notes(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_notes_session ON consultation_notes(session_id);
+CREATE INDEX IF NOT EXISTS idx_notes_specialist ON consultation_notes(specialist_id);
 
 -- ─────────────────────────────────────────────────────────────
 -- TABLE: note_template_defaults
 -- Pre-seeded specialty templates — read-only, used as starting points
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE note_template_defaults (
+CREATE TABLE IF NOT EXISTS note_template_defaults (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialty         TEXT NOT NULL,
   consultation_type consultation_type NOT NULL,
@@ -210,13 +216,13 @@ CREATE TABLE note_template_defaults (
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_template_defaults_specialty ON note_template_defaults(specialty);
+CREATE INDEX IF NOT EXISTS idx_template_defaults_specialty ON note_template_defaults(specialty);
 
 -- ─────────────────────────────────────────────────────────────
 -- TABLE: transcription_delivery_log
 -- Immutable audit of every patient/referrer notification sent
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE transcription_delivery_log (
+CREATE TABLE IF NOT EXISTS transcription_delivery_log (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   session_id        UUID NOT NULL REFERENCES transcription_sessions(id),
   specialist_id     UUID NOT NULL REFERENCES specialists(id),
@@ -228,7 +234,7 @@ CREATE TABLE transcription_delivery_log (
   content_hash      TEXT            -- hash of sent content for audit
 );
 
-CREATE INDEX idx_delivery_session ON transcription_delivery_log(session_id);
+CREATE INDEX IF NOT EXISTS idx_delivery_session ON transcription_delivery_log(session_id);
 
 -- ─────────────────────────────────────────────────────────────
 -- FUNCTION: auto-link transcription to synthesis
@@ -252,24 +258,32 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE TRIGGER note_approval_trigger
-  AFTER UPDATE ON transcription_sessions
-  FOR EACH ROW EXECUTE FUNCTION trigger_synthesis_on_note_approval();
+DO $$ BEGIN
+  CREATE TRIGGER note_approval_trigger
+    AFTER UPDATE ON transcription_sessions
+    FOR EACH ROW EXECUTE FUNCTION trigger_synthesis_on_note_approval();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────────────────────
 -- TRIGGERS: updated_at
 -- ─────────────────────────────────────────────────────────────
-CREATE TRIGGER note_templates_updated_at
-  BEFORE UPDATE ON note_templates
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER note_templates_updated_at
+    BEFORE UPDATE ON note_templates
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TRIGGER transcription_sessions_updated_at
-  BEFORE UPDATE ON transcription_sessions
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER transcription_sessions_updated_at
+    BEFORE UPDATE ON transcription_sessions
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TRIGGER consultation_notes_updated_at
-  BEFORE UPDATE ON consultation_notes
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER consultation_notes_updated_at
+    BEFORE UPDATE ON consultation_notes
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────────────────────
 -- ROW LEVEL SECURITY
@@ -280,21 +294,31 @@ ALTER TABLE consultation_notes         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transcription_delivery_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE note_template_defaults     ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY templates_isolation ON note_templates
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY templates_isolation ON note_templates
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY sessions_isolation ON transcription_sessions
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY sessions_isolation ON transcription_sessions
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY notes_isolation ON consultation_notes
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY notes_isolation ON consultation_notes
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY delivery_isolation ON transcription_delivery_log
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY delivery_isolation ON transcription_delivery_log
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Template defaults: all authenticated users can read
-CREATE POLICY defaults_read ON note_template_defaults
-  FOR SELECT USING (auth.uid() IS NOT NULL);
+DO $$ BEGIN
+  CREATE POLICY defaults_read ON note_template_defaults
+    FOR SELECT USING (auth.uid() IS NOT NULL);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────────────────────
 -- SEED: Specialty note template defaults

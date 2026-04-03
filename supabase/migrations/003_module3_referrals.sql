@@ -7,35 +7,47 @@
 -- ─────────────────────────────────────────────
 -- ENUMS
 -- ─────────────────────────────────────────────
-CREATE TYPE referral_status AS ENUM (
-  'draft', 'submitted', 'queried', 'info_provided',
-  'accepted', 'patient_arrived', 'procedure_planned',
-  'completed', 'closed', 'declined', 'cancelled'
-);
+DO $$ BEGIN
+  CREATE TYPE referral_status AS ENUM (
+    'draft', 'submitted', 'queried', 'info_provided',
+    'accepted', 'patient_arrived', 'procedure_planned',
+    'completed', 'closed', 'declined', 'cancelled'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE urgency_level AS ENUM ('routine', 'urgent', 'emergency');
+DO $$ BEGIN
+  CREATE TYPE urgency_level AS ENUM ('routine', 'urgent', 'emergency');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE message_sender_type AS ENUM ('specialist', 'referring_doctor', 'system');
+DO $$ BEGIN
+  CREATE TYPE message_sender_type AS ENUM ('specialist', 'referring_doctor', 'system');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE message_type AS ENUM ('text', 'document', 'clinical_update', 'system_event');
+DO $$ BEGIN
+  CREATE TYPE message_type AS ENUM ('text', 'document', 'clinical_update', 'system_event');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE case_update_type AS ENUM (
-  'patient_arrived', 'findings_shared', 'procedure_planned',
-  'procedure_completed', 'discharged', 'follow_up_required',
-  'general_update'
-);
+DO $$ BEGIN
+  CREATE TYPE case_update_type AS ENUM (
+    'patient_arrived', 'findings_shared', 'procedure_planned',
+    'procedure_completed', 'discharged', 'follow_up_required',
+    'general_update'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE document_type AS ENUM (
-  'prescription', 'lab_report', 'ecg', 'echo_report',
-  'imaging', 'discharge_summary', 'referral_letter', 'other'
-);
+DO $$ BEGIN
+  CREATE TYPE document_type AS ENUM (
+    'prescription', 'lab_report', 'ecg', 'echo_report',
+    'imaging', 'discharge_summary', 'referral_letter', 'other'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────
 -- TABLE: referring_doctors
 -- Independent identity — not tied to one specialist
 -- Referring GPs use the platform without full signup
 -- ─────────────────────────────────────────────
-CREATE TABLE referring_doctors (
+CREATE TABLE IF NOT EXISTS referring_doctors (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   mobile          TEXT NOT NULL,
   mobile_hash     TEXT GENERATED ALWAYS AS (encode(digest(mobile, 'sha256'), 'hex')) STORED,
@@ -49,14 +61,14 @@ CREATE TABLE referring_doctors (
   UNIQUE(mobile)
 );
 
-CREATE INDEX idx_referring_doctors_mobile_hash ON referring_doctors(mobile_hash);
+CREATE INDEX IF NOT EXISTS idx_referring_doctors_mobile_hash ON referring_doctors(mobile_hash);
 
 -- ─────────────────────────────────────────────
 -- TABLE: referral_tokens
 -- Secure one-time tokens for referral form access
 -- Specialist generates, sends to referring doctor via WhatsApp
 -- ─────────────────────────────────────────────
-CREATE TABLE referral_tokens (
+CREATE TABLE IF NOT EXISTS referral_tokens (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialist_id   UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
   referrer_id     UUID REFERENCES referrers(id),
@@ -68,14 +80,14 @@ CREATE TABLE referral_tokens (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_referral_tokens_token ON referral_tokens(token);
-CREATE INDEX idx_referral_tokens_specialist ON referral_tokens(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_referral_tokens_token ON referral_tokens(token);
+CREATE INDEX IF NOT EXISTS idx_referral_tokens_specialist ON referral_tokens(specialist_id);
 
 -- ─────────────────────────────────────────────
 -- TABLE: referral_cases
 -- Core referral entity — FHIR ServiceRequest aligned
 -- ─────────────────────────────────────────────
-CREATE TABLE referral_cases (
+CREATE TABLE IF NOT EXISTS referral_cases (
   id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialist_id         UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
   referrer_id           UUID REFERENCES referrers(id),
@@ -122,20 +134,20 @@ CREATE TABLE referral_cases (
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_cases_specialist_id ON referral_cases(specialist_id);
-CREATE INDEX idx_cases_referrer_id ON referral_cases(referrer_id);
-CREATE INDEX idx_cases_referring_doctor_id ON referral_cases(referring_doctor_id);
-CREATE INDEX idx_cases_status ON referral_cases(status);
-CREATE INDEX idx_cases_urgency ON referral_cases(urgency);
-CREATE INDEX idx_cases_submitted_at ON referral_cases(submitted_at DESC);
-CREATE INDEX idx_cases_reference_no ON referral_cases(reference_no);
+CREATE INDEX IF NOT EXISTS idx_cases_specialist_id ON referral_cases(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_cases_referrer_id ON referral_cases(referrer_id);
+CREATE INDEX IF NOT EXISTS idx_cases_referring_doctor_id ON referral_cases(referring_doctor_id);
+CREATE INDEX IF NOT EXISTS idx_cases_status ON referral_cases(status);
+CREATE INDEX IF NOT EXISTS idx_cases_urgency ON referral_cases(urgency);
+CREATE INDEX IF NOT EXISTS idx_cases_submitted_at ON referral_cases(submitted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cases_reference_no ON referral_cases(reference_no);
 
 -- ─────────────────────────────────────────────
 -- TABLE: referral_clinical_data
 -- Detailed clinical data (FHIR Observation + DiagnosticReport)
 -- Separated for performance and future FHIR export
 -- ─────────────────────────────────────────────
-CREATE TABLE referral_clinical_data (
+CREATE TABLE IF NOT EXISTS referral_clinical_data (
   id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   case_id               UUID NOT NULL REFERENCES referral_cases(id) ON DELETE CASCADE,
   specialist_id         UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
@@ -169,15 +181,15 @@ CREATE TABLE referral_clinical_data (
   UNIQUE(case_id)
 );
 
-CREATE INDEX idx_clinical_data_case_id ON referral_clinical_data(case_id);
-CREATE INDEX idx_clinical_data_specialist ON referral_clinical_data(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_clinical_data_case_id ON referral_clinical_data(case_id);
+CREATE INDEX IF NOT EXISTS idx_clinical_data_specialist ON referral_clinical_data(specialist_id);
 
 -- ─────────────────────────────────────────────
 -- TABLE: referral_documents
 -- Uploaded files — prescription, labs, ECG, etc.
 -- Files stored in Supabase Storage, paths here
 -- ─────────────────────────────────────────────
-CREATE TABLE referral_documents (
+CREATE TABLE IF NOT EXISTS referral_documents (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   case_id         UUID NOT NULL REFERENCES referral_cases(id) ON DELETE CASCADE,
   specialist_id   UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
@@ -190,14 +202,14 @@ CREATE TABLE referral_documents (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_documents_case_id ON referral_documents(case_id);
-CREATE INDEX idx_documents_specialist_id ON referral_documents(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_documents_case_id ON referral_documents(case_id);
+CREATE INDEX IF NOT EXISTS idx_documents_specialist_id ON referral_documents(specialist_id);
 
 -- ─────────────────────────────────────────────
 -- TABLE: case_messages
 -- Bidirectional communication thread per case
 -- ─────────────────────────────────────────────
-CREATE TABLE case_messages (
+CREATE TABLE IF NOT EXISTS case_messages (
   id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   case_id             UUID NOT NULL REFERENCES referral_cases(id) ON DELETE CASCADE,
   specialist_id       UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
@@ -212,16 +224,16 @@ CREATE TABLE case_messages (
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_messages_case_id ON case_messages(case_id);
-CREATE INDEX idx_messages_specialist_id ON case_messages(specialist_id);
-CREATE INDEX idx_messages_created ON case_messages(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_case_id ON case_messages(case_id);
+CREATE INDEX IF NOT EXISTS idx_messages_specialist_id ON case_messages(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_messages_created ON case_messages(created_at DESC);
 
 -- ─────────────────────────────────────────────
 -- TABLE: case_updates
 -- Structured clinical updates (patient arrived, procedure done, etc.)
 -- Each type has a defined JSONB schema
 -- ─────────────────────────────────────────────
-CREATE TABLE case_updates (
+CREATE TABLE IF NOT EXISTS case_updates (
   id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   case_id             UUID NOT NULL REFERENCES referral_cases(id) ON DELETE CASCADE,
   specialist_id       UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
@@ -238,8 +250,8 @@ CREATE TABLE case_updates (
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_updates_case_id ON case_updates(case_id);
-CREATE INDEX idx_updates_specialist_id ON case_updates(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_updates_case_id ON case_updates(case_id);
+CREATE INDEX IF NOT EXISTS idx_updates_specialist_id ON case_updates(specialist_id);
 
 -- ─────────────────────────────────────────────
 -- FUNCTION: auto update case status from updates
@@ -267,29 +279,37 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE TRIGGER case_status_sync
-  AFTER INSERT ON case_updates
-  FOR EACH ROW EXECUTE FUNCTION sync_case_status_from_update();
+DO $$ BEGIN
+  CREATE TRIGGER case_status_sync
+    AFTER INSERT ON case_updates
+    FOR EACH ROW EXECUTE FUNCTION sync_case_status_from_update();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────
 -- FUNCTION: updated_at triggers
 -- ─────────────────────────────────────────────
-CREATE TRIGGER referral_cases_updated_at
-  BEFORE UPDATE ON referral_cases
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER referral_cases_updated_at
+    BEFORE UPDATE ON referral_cases
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TRIGGER clinical_data_updated_at
-  BEFORE UPDATE ON referral_clinical_data
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER clinical_data_updated_at
+    BEFORE UPDATE ON referral_clinical_data
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TRIGGER referring_doctors_updated_at
-  BEFORE UPDATE ON referring_doctors
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER referring_doctors_updated_at
+    BEFORE UPDATE ON referring_doctors
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────
 -- VIEWS: analytics
 -- ─────────────────────────────────────────────
-CREATE VIEW v_referral_analytics AS
+CREATE OR REPLACE VIEW v_referral_analytics AS
 SELECT
   rc.specialist_id,
   COUNT(*)                                                          AS total_cases,
@@ -318,28 +338,40 @@ ALTER TABLE case_updates           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE referral_tokens        ENABLE ROW LEVEL SECURITY;
 
 -- referral_cases: specialist sees only their cases
-CREATE POLICY cases_specialist_isolation ON referral_cases
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY cases_specialist_isolation ON referral_cases
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- clinical data: specialist sees only their cases
-CREATE POLICY clinical_data_isolation ON referral_clinical_data
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY clinical_data_isolation ON referral_clinical_data
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- documents: specialist sees only their cases
-CREATE POLICY documents_isolation ON referral_documents
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY documents_isolation ON referral_documents
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- messages: specialist sees only their case threads
-CREATE POLICY messages_isolation ON case_messages
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY messages_isolation ON case_messages
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- updates: specialist sees only their case updates
-CREATE POLICY updates_isolation ON case_updates
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY updates_isolation ON case_updates
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- tokens: specialist manages their own tokens
-CREATE POLICY tokens_isolation ON referral_tokens
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY tokens_isolation ON referral_tokens
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Service role bypass for server-side referral form submission
 -- (referring doctors submit without auth.uid — server action uses service role)

@@ -7,35 +7,43 @@
 -- ─────────────────────────────────────────────
 -- ENUMS
 -- ─────────────────────────────────────────────
-CREATE TYPE question_type AS ENUM (
-  'text',           -- free text
-  'number',         -- numeric input
-  'yes_no',         -- yes / no
-  'single_choice',  -- select one from list
-  'multi_choice',   -- select multiple
-  'scale',          -- 1–10 scale
-  'date',           -- date picker
-  'vitals_bp',      -- systolic/diastolic pair
-  'vitals_single',  -- single vital (HR, SpO2, etc.)
-  'section_header'  -- visual separator, not a question
-);
+DO $$ BEGIN
+  CREATE TYPE question_type AS ENUM (
+    'text',           -- free text
+    'number',         -- numeric input
+    'yes_no',         -- yes / no
+    'single_choice',  -- select one from list
+    'multi_choice',   -- select multiple
+    'scale',          -- 1–10 scale
+    'date',           -- date picker
+    'vitals_bp',      -- systolic/diastolic pair
+    'vitals_single',  -- single vital (HR, SpO2, etc.)
+    'section_header'  -- visual separator, not a question
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE triage_status AS ENUM (
-  'pending', 'in_progress', 'completed', 'abandoned', 'expired'
-);
+DO $$ BEGIN
+  CREATE TYPE triage_status AS ENUM (
+    'pending', 'in_progress', 'completed', 'abandoned', 'expired'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE red_flag_level AS ENUM ('none', 'routine', 'needs_review', 'urgent');
+DO $$ BEGIN
+  CREATE TYPE red_flag_level AS ENUM ('none', 'routine', 'needs_review', 'urgent');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE protocol_type AS ENUM (
-  'new_patient', 'pre_procedure', 'follow_up',
-  'emergency_walkIn', 'post_procedure', 'general'
-);
+DO $$ BEGIN
+  CREATE TYPE protocol_type AS ENUM (
+    'new_patient', 'pre_procedure', 'follow_up',
+    'emergency_walkIn', 'post_procedure', 'general'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────
 -- TABLE: triage_protocols
 -- One per specialist per consultation type
 -- ─────────────────────────────────────────────
-CREATE TABLE triage_protocols (
+CREATE TABLE IF NOT EXISTS triage_protocols (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialist_id     UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
   name              TEXT NOT NULL,
@@ -52,11 +60,11 @@ CREATE TABLE triage_protocols (
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_protocols_specialist ON triage_protocols(specialist_id);
-CREATE INDEX idx_protocols_active ON triage_protocols(specialist_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_protocols_specialist ON triage_protocols(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_protocols_active ON triage_protocols(specialist_id, is_active);
 
 -- Ensure only one default per specialist
-CREATE UNIQUE INDEX idx_protocols_one_default
+CREATE UNIQUE INDEX IF NOT EXISTS idx_protocols_one_default
   ON triage_protocols(specialist_id)
   WHERE is_default = TRUE;
 
@@ -69,7 +77,7 @@ CREATE UNIQUE INDEX idx_protocols_one_default
 -- red_flag_rules JSONB structure:
 -- { "operator": "eq|gt|lt|contains|not_eq", "value": "...", "level": "urgent|needs_review", "message": "..." }
 -- ─────────────────────────────────────────────
-CREATE TABLE triage_questions (
+CREATE TABLE IF NOT EXISTS triage_questions (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   protocol_id     UUID NOT NULL REFERENCES triage_protocols(id) ON DELETE CASCADE,
   specialist_id   UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
@@ -91,14 +99,14 @@ CREATE TABLE triage_questions (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_questions_protocol ON triage_questions(protocol_id, sort_order);
-CREATE INDEX idx_questions_specialist ON triage_questions(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_questions_protocol ON triage_questions(protocol_id, sort_order);
+CREATE INDEX IF NOT EXISTS idx_questions_specialist ON triage_questions(specialist_id);
 
 -- ─────────────────────────────────────────────
 -- TABLE: triage_sessions
 -- One per patient triage attempt
 -- ─────────────────────────────────────────────
-CREATE TABLE triage_sessions (
+CREATE TABLE IF NOT EXISTS triage_sessions (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialist_id     UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
   protocol_id       UUID NOT NULL REFERENCES triage_protocols(id),
@@ -134,18 +142,18 @@ CREATE TABLE triage_sessions (
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_triage_sessions_specialist ON triage_sessions(specialist_id);
-CREATE INDEX idx_sessions_appointment ON triage_sessions(appointment_id);
-CREATE INDEX idx_sessions_referral ON triage_sessions(referral_case_id);
-CREATE INDEX idx_sessions_token ON triage_sessions(access_token);
-CREATE INDEX idx_sessions_status ON triage_sessions(specialist_id, status);
-CREATE INDEX idx_sessions_created ON triage_sessions(specialist_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_triage_sessions_specialist ON triage_sessions(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_appointment ON triage_sessions(appointment_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_referral ON triage_sessions(referral_case_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_token ON triage_sessions(access_token);
+CREATE INDEX IF NOT EXISTS idx_sessions_status ON triage_sessions(specialist_id, status);
+CREATE INDEX IF NOT EXISTS idx_sessions_created ON triage_sessions(specialist_id, created_at DESC);
 
 -- ─────────────────────────────────────────────
 -- TABLE: triage_answers
 -- One row per question answered in a session
 -- ─────────────────────────────────────────────
-CREATE TABLE triage_answers (
+CREATE TABLE IF NOT EXISTS triage_answers (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   session_id      UUID NOT NULL REFERENCES triage_sessions(id) ON DELETE CASCADE,
   specialist_id   UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
@@ -159,15 +167,15 @@ CREATE TABLE triage_answers (
   UNIQUE(session_id, question_id)
 );
 
-CREATE INDEX idx_answers_session ON triage_answers(session_id);
-CREATE INDEX idx_answers_specialist ON triage_answers(specialist_id);
-CREATE INDEX idx_answers_red_flag ON triage_answers(session_id) WHERE is_red_flag = TRUE;
+CREATE INDEX IF NOT EXISTS idx_answers_session ON triage_answers(session_id);
+CREATE INDEX IF NOT EXISTS idx_answers_specialist ON triage_answers(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_answers_red_flag ON triage_answers(session_id) WHERE is_red_flag = TRUE;
 
 -- ─────────────────────────────────────────────
 -- TABLE: triage_protocol_templates
 -- Read-only seed data — specialty starter templates
 -- ─────────────────────────────────────────────
-CREATE TABLE triage_protocol_templates (
+CREATE TABLE IF NOT EXISTS triage_protocol_templates (
   id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialty   TEXT NOT NULL,
   name        TEXT NOT NULL,
@@ -177,7 +185,7 @@ CREATE TABLE triage_protocol_templates (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_templates_specialty ON triage_protocol_templates(specialty);
+CREATE INDEX IF NOT EXISTS idx_templates_specialty ON triage_protocol_templates(specialty);
 
 -- ─────────────────────────────────────────────
 -- FUNCTION: evaluate red flags for a session answer
@@ -262,13 +270,17 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- ─────────────────────────────────────────────
 -- TRIGGERS
 -- ─────────────────────────────────────────────
-CREATE TRIGGER protocols_updated_at
-  BEFORE UPDATE ON triage_protocols
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER protocols_updated_at
+    BEFORE UPDATE ON triage_protocols
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TRIGGER sessions_updated_at
-  BEFORE UPDATE ON triage_sessions
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER sessions_updated_at
+    BEFORE UPDATE ON triage_sessions
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────
 -- ROW LEVEL SECURITY
@@ -279,21 +291,31 @@ ALTER TABLE triage_sessions           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE triage_answers            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE triage_protocol_templates ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY protocols_isolation ON triage_protocols
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY protocols_isolation ON triage_protocols
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY questions_isolation ON triage_questions
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY questions_isolation ON triage_questions
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY sessions_isolation ON triage_sessions
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY sessions_isolation ON triage_sessions
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY answers_isolation ON triage_answers
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY answers_isolation ON triage_answers
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Templates are read-only for all authenticated users
-CREATE POLICY templates_read ON triage_protocol_templates
-  FOR SELECT USING (auth.uid() IS NOT NULL);
+DO $$ BEGIN
+  CREATE POLICY templates_read ON triage_protocol_templates
+    FOR SELECT USING (auth.uid() IS NOT NULL);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────
 -- SEED: Specialty protocol templates

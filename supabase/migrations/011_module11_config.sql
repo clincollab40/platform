@@ -14,45 +14,53 @@
 -- ─────────────────────────────────────────────────────────────
 -- ENUMS
 -- ─────────────────────────────────────────────────────────────
-CREATE TYPE plan_tier AS ENUM (
-  'starter',        -- M1+M2+M3: solo practitioner
-  'growth',         -- M1–M6: group practice
-  'professional',   -- M1–M9: hospital department
-  'enterprise',     -- M1–M10: full platform
-  'custom'          -- bespoke per-org configuration
-);
+DO $$ BEGIN
+  CREATE TYPE plan_tier AS ENUM (
+    'starter',        -- M1+M2+M3: solo practitioner
+    'growth',         -- M1–M6: group practice
+    'professional',   -- M1–M9: hospital department
+    'enterprise',     -- M1–M10: full platform
+    'custom'          -- bespoke per-org configuration
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE org_status AS ENUM (
-  'trial',          -- 30-day trial
-  'active',         -- paying / active
-  'suspended',      -- payment failure or policy violation
-  'cancelled',      -- churned
-  'demo'            -- internal demo / sandbox
-);
+DO $$ BEGIN
+  CREATE TYPE org_status AS ENUM (
+    'trial',          -- 30-day trial
+    'active',         -- paying / active
+    'suspended',      -- payment failure or policy violation
+    'cancelled',      -- churned
+    'demo'            -- internal demo / sandbox
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE module_key AS ENUM (
-  'm1_identity',
-  'm2_network',
-  'm3_referrals',
-  'm4_chatbot',
-  'm5_triage',
-  'm6_synthesis',
-  'm7_transcription',
-  'm8_procedure_planner',
-  'm9_communication',
-  'm10_content'
-);
+DO $$ BEGIN
+  CREATE TYPE module_key AS ENUM (
+    'm1_identity',
+    'm2_network',
+    'm3_referrals',
+    'm4_chatbot',
+    'm5_triage',
+    'm6_synthesis',
+    'm7_transcription',
+    'm8_procedure_planner',
+    'm9_communication',
+    'm10_content'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE geography AS ENUM (
-  'india', 'gcc', 'sea', 'uk', 'aus', 'usa', 'global'
-);
+DO $$ BEGIN
+  CREATE TYPE geography AS ENUM (
+    'india', 'gcc', 'sea', 'uk', 'aus', 'usa', 'global'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────────────────────
 -- TABLE: organisations
 -- The top-level tenant. Every specialist belongs to exactly one org.
 -- An org has a plan_tier and a set of overrides on top of the plan.
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE organisations (
+CREATE TABLE IF NOT EXISTS organisations (
   id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name                TEXT NOT NULL,
   slug                TEXT NOT NULL UNIQUE,       -- url-safe org identifier
@@ -98,16 +106,16 @@ CREATE TABLE organisations (
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_orgs_slug   ON organisations(slug);
-CREATE INDEX idx_orgs_status ON organisations(status);
-CREATE INDEX idx_orgs_tier   ON organisations(plan_tier);
+CREATE INDEX IF NOT EXISTS idx_orgs_slug   ON organisations(slug);
+CREATE INDEX IF NOT EXISTS idx_orgs_status ON organisations(status);
+CREATE INDEX IF NOT EXISTS idx_orgs_tier   ON organisations(plan_tier);
 
 -- ─────────────────────────────────────────────────────────────
 -- TABLE: org_specialists
 -- Maps specialists to organisations (multi-tenant link table)
 -- A specialist can belong to one org at a time.
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE org_specialists (
+CREATE TABLE IF NOT EXISTS org_specialists (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   org_id          UUID NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
   specialist_id   UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
@@ -118,15 +126,15 @@ CREATE TABLE org_specialists (
   UNIQUE(specialist_id)   -- one org per specialist
 );
 
-CREATE INDEX idx_org_specialists_org  ON org_specialists(org_id);
-CREATE INDEX idx_org_specialists_spec ON org_specialists(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_org_specialists_org  ON org_specialists(org_id);
+CREATE INDEX IF NOT EXISTS idx_org_specialists_spec ON org_specialists(specialist_id);
 
 -- ─────────────────────────────────────────────────────────────
 -- TABLE: plan_definitions
 -- What each plan tier includes by default.
 -- Read-only seed data — managed by ClinCollab admin only.
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE plan_definitions (
+CREATE TABLE IF NOT EXISTS plan_definitions (
   id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tier                plan_tier NOT NULL UNIQUE,
   display_name        TEXT NOT NULL,
@@ -159,7 +167,7 @@ CREATE TABLE plan_definitions (
 -- Per-org overrides on top of the plan.
 -- One row per module per org.
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE org_module_config (
+CREATE TABLE IF NOT EXISTS org_module_config (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   org_id          UUID NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
   module_key      module_key NOT NULL,
@@ -175,16 +183,16 @@ CREATE TABLE org_module_config (
   UNIQUE(org_id, module_key)
 );
 
-CREATE INDEX idx_org_module_org    ON org_module_config(org_id);
-CREATE INDEX idx_org_module_key    ON org_module_config(module_key);
-CREATE INDEX idx_org_module_enabled ON org_module_config(org_id) WHERE is_enabled = TRUE;
+CREATE INDEX IF NOT EXISTS idx_org_module_org     ON org_module_config(org_id);
+CREATE INDEX IF NOT EXISTS idx_org_module_key     ON org_module_config(module_key);
+CREATE INDEX IF NOT EXISTS idx_org_module_enabled ON org_module_config(org_id) WHERE is_enabled = TRUE;
 
 -- ─────────────────────────────────────────────────────────────
 -- TABLE: specialist_permissions
 -- Per-specialist overrides within an org.
 -- Inherits org config but can be restricted or elevated.
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE specialist_permissions (
+CREATE TABLE IF NOT EXISTS specialist_permissions (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   org_id          UUID NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
   specialist_id   UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
@@ -198,8 +206,8 @@ CREATE TABLE specialist_permissions (
   UNIQUE(org_id, specialist_id, module_key)
 );
 
-CREATE INDEX idx_permissions_specialist ON specialist_permissions(specialist_id);
-CREATE INDEX idx_permissions_org        ON specialist_permissions(org_id);
+CREATE INDEX IF NOT EXISTS idx_permissions_specialist ON specialist_permissions(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_permissions_org        ON specialist_permissions(org_id);
 
 -- ─────────────────────────────────────────────────────────────
 -- TABLE: feature_flag_registry
@@ -207,7 +215,7 @@ CREATE INDEX idx_permissions_org        ON specialist_permissions(org_id);
 -- Documents what each flag does, which module it belongs to,
 -- and its safe default. Used to render admin UI dynamically.
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE feature_flag_registry (
+CREATE TABLE IF NOT EXISTS feature_flag_registry (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   flag_key        TEXT NOT NULL UNIQUE,          -- e.g. 'm10.tier2_evidence'
   module_key      module_key NOT NULL,
@@ -222,14 +230,14 @@ CREATE TABLE feature_flag_registry (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_flag_registry_module ON feature_flag_registry(module_key);
+CREATE INDEX IF NOT EXISTS idx_flag_registry_module ON feature_flag_registry(module_key);
 
 -- ─────────────────────────────────────────────────────────────
 -- TABLE: usage_events
 -- Every usage action recorded for billing, limits, analytics.
 -- Immutable — append-only.
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE usage_events (
+CREATE TABLE IF NOT EXISTS usage_events (
   id              UUID NOT NULL DEFAULT uuid_generate_v4(),
   org_id          UUID NOT NULL REFERENCES organisations(id),
   specialist_id   UUID REFERENCES specialists(id),
@@ -241,31 +249,31 @@ CREATE TABLE usage_events (
   PRIMARY KEY (id, event_at)          -- partition key must be part of PK
 ) PARTITION BY RANGE (event_at);
 
--- Partition by month for performance
-CREATE TABLE usage_events_y2025_q1 PARTITION OF usage_events
+-- Partition by quarter for performance
+CREATE TABLE IF NOT EXISTS usage_events_y2025_q1 PARTITION OF usage_events
   FOR VALUES FROM ('2025-01-01') TO ('2025-04-01');
-CREATE TABLE usage_events_y2025_q2 PARTITION OF usage_events
+CREATE TABLE IF NOT EXISTS usage_events_y2025_q2 PARTITION OF usage_events
   FOR VALUES FROM ('2025-04-01') TO ('2025-07-01');
-CREATE TABLE usage_events_y2025_q3 PARTITION OF usage_events
+CREATE TABLE IF NOT EXISTS usage_events_y2025_q3 PARTITION OF usage_events
   FOR VALUES FROM ('2025-07-01') TO ('2025-10-01');
-CREATE TABLE usage_events_y2025_q4 PARTITION OF usage_events
+CREATE TABLE IF NOT EXISTS usage_events_y2025_q4 PARTITION OF usage_events
   FOR VALUES FROM ('2025-10-01') TO ('2026-01-01');
-CREATE TABLE usage_events_y2026_q1 PARTITION OF usage_events
+CREATE TABLE IF NOT EXISTS usage_events_y2026_q1 PARTITION OF usage_events
   FOR VALUES FROM ('2026-01-01') TO ('2026-04-01');
-CREATE TABLE usage_events_y2026_q2 PARTITION OF usage_events
+CREATE TABLE IF NOT EXISTS usage_events_y2026_q2 PARTITION OF usage_events
   FOR VALUES FROM ('2026-04-01') TO ('2026-07-01');
-CREATE TABLE usage_events_default  PARTITION OF usage_events DEFAULT;
+CREATE TABLE IF NOT EXISTS usage_events_default  PARTITION OF usage_events DEFAULT;
 
-CREATE INDEX idx_usage_org_month ON usage_events(org_id, event_at DESC);
-CREATE INDEX idx_usage_module    ON usage_events(module_key, event_at DESC);
-CREATE INDEX idx_usage_type      ON usage_events(event_type, event_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_org_month ON usage_events(org_id, event_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_module    ON usage_events(module_key, event_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_type      ON usage_events(event_type, event_at DESC);
 
 -- ─────────────────────────────────────────────────────────────
 -- TABLE: config_audit_log
 -- Immutable log of every configuration change.
 -- Who changed what, when, from what to what.
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE config_audit_log (
+CREATE TABLE IF NOT EXISTS config_audit_log (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   org_id          UUID REFERENCES organisations(id),
   specialist_id   UUID REFERENCES specialists(id),
@@ -281,9 +289,9 @@ CREATE TABLE config_audit_log (
   changed_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_audit_org        ON config_audit_log(org_id, changed_at DESC);
-CREATE INDEX idx_audit_specialist ON config_audit_log(specialist_id, changed_at DESC);
-CREATE INDEX idx_audit_changed_by ON config_audit_log(changed_by, changed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_org        ON config_audit_log(org_id, changed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_specialist ON config_audit_log(specialist_id, changed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_changed_by ON config_audit_log(changed_by, changed_at DESC);
 
 -- ─────────────────────────────────────────────────────────────
 -- VIEW: v_specialist_entitlements
@@ -437,13 +445,17 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- ─────────────────────────────────────────────────────────────
 -- TRIGGERS
 -- ─────────────────────────────────────────────────────────────
-CREATE TRIGGER orgs_updated_at
-  BEFORE UPDATE ON organisations
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER orgs_updated_at
+    BEFORE UPDATE ON organisations
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TRIGGER org_module_config_updated_at
-  BEFORE UPDATE ON org_module_config
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER org_module_config_updated_at
+    BEFORE UPDATE ON org_module_config
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Auto-create org_module_config rows when org is created
 CREATE OR REPLACE FUNCTION setup_org_modules_on_create()
@@ -470,9 +482,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER org_setup_modules
-  AFTER INSERT ON organisations
-  FOR EACH ROW EXECUTE FUNCTION setup_org_modules_on_create();
+DO $$ BEGIN
+  CREATE TRIGGER org_setup_modules
+    AFTER INSERT ON organisations
+    FOR EACH ROW EXECUTE FUNCTION setup_org_modules_on_create();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────────────────────
 -- ROW LEVEL SECURITY
@@ -487,40 +501,64 @@ ALTER TABLE plan_definitions       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE feature_flag_registry  ENABLE ROW LEVEL SECURITY;
 
 -- Specialists see their own org
-CREATE POLICY orgs_read ON organisations FOR SELECT
-  USING (id IN (SELECT org_id FROM org_specialists WHERE specialist_id = auth.uid()));
+DO $$ BEGIN
+  CREATE POLICY orgs_read ON organisations FOR SELECT
+    USING (id IN (SELECT org_id FROM org_specialists WHERE specialist_id = auth.uid()));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Admins see all
-CREATE POLICY orgs_admin ON organisations FOR ALL
-  USING (auth.uid() IN (SELECT id FROM specialists WHERE role = 'admin'));
+DO $$ BEGIN
+  CREATE POLICY orgs_admin ON organisations FOR ALL
+    USING (auth.uid() IN (SELECT id FROM specialists WHERE role = 'admin'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Module config: org members can read; org admins can write
-CREATE POLICY org_module_read ON org_module_config FOR SELECT
-  USING (org_id IN (SELECT org_id FROM org_specialists WHERE specialist_id = auth.uid()));
-CREATE POLICY org_module_admin_write ON org_module_config FOR ALL
-  USING (auth.uid() IN (SELECT s.id FROM specialists s WHERE s.role = 'admin'));
+DO $$ BEGIN
+  CREATE POLICY org_module_read ON org_module_config FOR SELECT
+    USING (org_id IN (SELECT org_id FROM org_specialists WHERE specialist_id = auth.uid()));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE POLICY org_module_admin_write ON org_module_config FOR ALL
+    USING (auth.uid() IN (SELECT s.id FROM specialists s WHERE s.role = 'admin'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Specialist permissions: self can read, admin can write
-CREATE POLICY spec_perm_read ON specialist_permissions FOR SELECT
-  USING (specialist_id = auth.uid() OR
-         auth.uid() IN (SELECT id FROM specialists WHERE role = 'admin'));
-CREATE POLICY spec_perm_write ON specialist_permissions FOR ALL
-  USING (auth.uid() IN (SELECT id FROM specialists WHERE role = 'admin'));
+DO $$ BEGIN
+  CREATE POLICY spec_perm_read ON specialist_permissions FOR SELECT
+    USING (specialist_id = auth.uid() OR
+           auth.uid() IN (SELECT id FROM specialists WHERE role = 'admin'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE POLICY spec_perm_write ON specialist_permissions FOR ALL
+    USING (auth.uid() IN (SELECT id FROM specialists WHERE role = 'admin'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Usage events: own org read only
-CREATE POLICY usage_read ON usage_events FOR SELECT
-  USING (org_id IN (SELECT org_id FROM org_specialists WHERE specialist_id = auth.uid()));
+DO $$ BEGIN
+  CREATE POLICY usage_read ON usage_events FOR SELECT
+    USING (org_id IN (SELECT org_id FROM org_specialists WHERE specialist_id = auth.uid()));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Audit log: admin only
-CREATE POLICY audit_admin ON config_audit_log FOR ALL
-  USING (auth.uid() IN (SELECT id FROM specialists WHERE role = 'admin'));
+DO $$ BEGIN
+  CREATE POLICY audit_admin ON config_audit_log FOR ALL
+    USING (auth.uid() IN (SELECT id FROM specialists WHERE role = 'admin'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Plan definitions and flag registry: all authenticated can read
-CREATE POLICY plans_read ON plan_definitions FOR SELECT USING (auth.uid() IS NOT NULL);
-CREATE POLICY flags_read ON feature_flag_registry FOR SELECT USING (auth.uid() IS NOT NULL);
+DO $$ BEGIN
+  CREATE POLICY plans_read ON plan_definitions FOR SELECT USING (auth.uid() IS NOT NULL);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE POLICY flags_read ON feature_flag_registry FOR SELECT USING (auth.uid() IS NOT NULL);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────────────────────
 -- SEED: Plan definitions
+-- Idempotent: ON CONFLICT (tier) DO NOTHING
 -- ─────────────────────────────────────────────────────────────
 INSERT INTO plan_definitions (
   tier, display_name, description, enabled_modules,
@@ -569,10 +607,13 @@ INSERT INTO plan_definitions (
   '{}'::JSONB,
   ARRAY[]::TEXT[],
   ARRAY['pdf']
-);
+)
+
+ON CONFLICT (tier) DO NOTHING;
 
 -- ─────────────────────────────────────────────────────────────
 -- SEED: Feature flag registry
+-- Idempotent: ON CONFLICT (flag_key) DO NOTHING
 -- ─────────────────────────────────────────────────────────────
 INSERT INTO feature_flag_registry (flag_key, module_key, display_name, description, default_value, included_from_tier, risk_level, requires_admin) VALUES
 
@@ -620,4 +661,6 @@ INSERT INTO feature_flag_registry (flag_key, module_key, display_name, descripti
 ('platform.api_access',     'm1_identity','API access','Enable REST API access for this org',FALSE,'professional','high',TRUE),
 ('platform.white_label',    'm1_identity','White label branding','Custom logo, colours, domain',FALSE,'enterprise','medium',TRUE),
 ('platform.data_export_all','m1_identity','Full data export','Export all data as JSON/CSV',FALSE,'professional','medium',FALSE),
-('platform.sso',            'm1_identity','SSO / SAML','Single sign-on integration',FALSE,'enterprise','high',TRUE);
+('platform.sso',            'm1_identity','SSO / SAML','Single sign-on integration',FALSE,'enterprise','high',TRUE)
+
+ON CONFLICT (flag_key) DO NOTHING;

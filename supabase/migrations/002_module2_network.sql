@@ -7,14 +7,19 @@
 -- ─────────────────────────────────────────────
 -- ENUMS
 -- ─────────────────────────────────────────────
-CREATE TYPE referrer_status AS ENUM ('new', 'active', 'drifting', 'silent', 'inactive');
-CREATE TYPE case_type AS ENUM ('procedure', 'opd_consultation', 'emergency', 'investigation', 'other');
+DO $$ BEGIN
+  CREATE TYPE referrer_status AS ENUM ('new', 'active', 'drifting', 'silent', 'inactive');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE case_type AS ENUM ('procedure', 'opd_consultation', 'emergency', 'investigation', 'other');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────
 -- TABLE: referrers
 -- The private peer network of each specialist
 -- ─────────────────────────────────────────────
-CREATE TABLE referrers (
+CREATE TABLE IF NOT EXISTS referrers (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialist_id     UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
   name              TEXT NOT NULL,
@@ -34,19 +39,19 @@ CREATE TABLE referrers (
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_referrers_specialist_id ON referrers(specialist_id);
-CREATE INDEX idx_referrers_status ON referrers(status);
-CREATE INDEX idx_referrers_city ON referrers(city);
-CREATE INDEX idx_referrers_last_referral ON referrers(last_referral_at DESC NULLS LAST);
+CREATE INDEX IF NOT EXISTS idx_referrers_specialist_id ON referrers(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_referrers_status ON referrers(status);
+CREATE INDEX IF NOT EXISTS idx_referrers_city ON referrers(city);
+CREATE INDEX IF NOT EXISTS idx_referrers_last_referral ON referrers(last_referral_at DESC NULLS LAST);
 -- Full-text search index
-CREATE INDEX idx_referrers_search ON referrers
+CREATE INDEX IF NOT EXISTS idx_referrers_search ON referrers
   USING GIN(to_tsvector('english', name || ' ' || COALESCE(clinic_name,'') || ' ' || COALESCE(specialty,'')));
 
 -- ─────────────────────────────────────────────
 -- TABLE: referral_logs
 -- Manual log of referrals received
 -- ─────────────────────────────────────────────
-CREATE TABLE referral_logs (
+CREATE TABLE IF NOT EXISTS referral_logs (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialist_id   UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
   referrer_id     UUID NOT NULL REFERENCES referrers(id) ON DELETE CASCADE,
@@ -56,15 +61,15 @@ CREATE TABLE referral_logs (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_referral_logs_specialist_id ON referral_logs(specialist_id);
-CREATE INDEX idx_referral_logs_referrer_id ON referral_logs(referrer_id);
-CREATE INDEX idx_referral_logs_referred_on ON referral_logs(referred_on DESC);
+CREATE INDEX IF NOT EXISTS idx_referral_logs_specialist_id ON referral_logs(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_referral_logs_referrer_id ON referral_logs(referrer_id);
+CREATE INDEX IF NOT EXISTS idx_referral_logs_referred_on ON referral_logs(referred_on DESC);
 
 -- ─────────────────────────────────────────────
 -- TABLE: referrer_notes
 -- Free-text notes the specialist adds per referrer
 -- ─────────────────────────────────────────────
-CREATE TABLE referrer_notes (
+CREATE TABLE IF NOT EXISTS referrer_notes (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialist_id   UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
   referrer_id     UUID NOT NULL REFERENCES referrers(id) ON DELETE CASCADE,
@@ -72,13 +77,13 @@ CREATE TABLE referrer_notes (
   noted_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_referrer_notes_referrer_id ON referrer_notes(referrer_id);
+CREATE INDEX IF NOT EXISTS idx_referrer_notes_referrer_id ON referrer_notes(referrer_id);
 
 -- ─────────────────────────────────────────────
 -- TABLE: network_health_snapshots
 -- Daily snapshot for trend analysis
 -- ─────────────────────────────────────────────
-CREATE TABLE network_health_snapshots (
+CREATE TABLE IF NOT EXISTS network_health_snapshots (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialist_id     UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
   snapshot_date     DATE NOT NULL DEFAULT CURRENT_DATE,
@@ -92,13 +97,13 @@ CREATE TABLE network_health_snapshots (
   UNIQUE(specialist_id, snapshot_date)
 );
 
-CREATE INDEX idx_snapshots_specialist_date ON network_health_snapshots(specialist_id, snapshot_date DESC);
+CREATE INDEX IF NOT EXISTS idx_snapshots_specialist_date ON network_health_snapshots(specialist_id, snapshot_date DESC);
 
 -- ─────────────────────────────────────────────
 -- VIEW: v_admin_network_health
 -- Admin sees aggregate metrics — zero referrer PII
 -- ─────────────────────────────────────────────
-CREATE VIEW v_admin_network_health AS
+CREATE OR REPLACE VIEW v_admin_network_health AS
 SELECT
   s.id                AS specialist_id,
   s.name              AS specialist_name,
@@ -164,9 +169,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE TRIGGER referral_logged
-  AFTER INSERT ON referral_logs
-  FOR EACH ROW EXECUTE FUNCTION update_referrer_after_log();
+DO $$ BEGIN
+  CREATE TRIGGER referral_logged
+    AFTER INSERT ON referral_logs
+    FOR EACH ROW EXECUTE FUNCTION update_referrer_after_log();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────
 -- FUNCTION: health score computation
@@ -242,9 +249,11 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- ─────────────────────────────────────────────
 -- UPDATED_AT triggers
 -- ─────────────────────────────────────────────
-CREATE TRIGGER referrers_updated_at
-  BEFORE UPDATE ON referrers
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER referrers_updated_at
+    BEFORE UPDATE ON referrers
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────
 -- ROW LEVEL SECURITY
@@ -255,20 +264,28 @@ ALTER TABLE referrer_notes          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE network_health_snapshots ENABLE ROW LEVEL SECURITY;
 
 -- referrers: own rows only — the critical privacy boundary
-CREATE POLICY referrers_isolation ON referrers
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY referrers_isolation ON referrers
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- referral_logs: own rows only
-CREATE POLICY referral_logs_isolation ON referral_logs
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY referral_logs_isolation ON referral_logs
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- referrer_notes: own rows only
-CREATE POLICY referrer_notes_isolation ON referrer_notes
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY referrer_notes_isolation ON referrer_notes
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- snapshots: own rows only
-CREATE POLICY snapshots_isolation ON network_health_snapshots
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY snapshots_isolation ON network_health_snapshots
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────
 -- SECURITY TEST: cross-specialist access attempt

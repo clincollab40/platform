@@ -13,32 +13,42 @@
 -- ─────────────────────────────────────────────
 -- ENUMS
 -- ─────────────────────────────────────────────
-CREATE TYPE synthesis_trigger AS ENUM (
-  'pre_consultation',   -- triage completed
-  'post_referral',      -- referral accepted
-  'manual',             -- specialist on-demand
-  'pre_procedure',      -- appointment day
-  'scheduled'           -- periodic background refresh
-);
+DO $$ BEGIN
+  CREATE TYPE synthesis_trigger AS ENUM (
+    'pre_consultation',   -- triage completed
+    'post_referral',      -- referral accepted
+    'manual',             -- specialist on-demand
+    'pre_procedure',      -- appointment day
+    'scheduled'           -- periodic background refresh
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE synthesis_status AS ENUM (
-  'queued', 'running', 'completed', 'failed', 'partial'
-);
+DO $$ BEGIN
+  CREATE TYPE synthesis_status AS ENUM (
+    'queued', 'running', 'completed', 'failed', 'partial'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE agent_tool_status AS ENUM (
-  'pending', 'running', 'success', 'failed', 'skipped'
-);
+DO $$ BEGIN
+  CREATE TYPE agent_tool_status AS ENUM (
+    'pending', 'running', 'success', 'failed', 'skipped'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE data_source AS ENUM (
-  'triage_self_report',
-  'referral_summary',
-  'appointment_history',
-  'chatbot_interaction',
-  'specialist_notes',
-  'network_context'
-);
+DO $$ BEGIN
+  CREATE TYPE data_source AS ENUM (
+    'triage_self_report',
+    'referral_summary',
+    'appointment_history',
+    'chatbot_interaction',
+    'specialist_notes',
+    'network_context'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE finding_significance AS ENUM ('routine', 'notable', 'critical');
+DO $$ BEGIN
+  CREATE TYPE finding_significance AS ENUM ('routine', 'notable', 'critical');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────
 -- TABLE: synthesis_jobs
@@ -46,7 +56,7 @@ CREATE TYPE finding_significance AS ENUM ('routine', 'notable', 'critical');
 -- Intentionally isolated — references only specialists
 -- Cross-module data fetched at runtime, not stored as FK
 -- ─────────────────────────────────────────────
-CREATE TABLE synthesis_jobs (
+CREATE TABLE IF NOT EXISTS synthesis_jobs (
   id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialist_id         UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
 
@@ -82,20 +92,20 @@ CREATE TABLE synthesis_jobs (
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_synthesis_jobs_specialist ON synthesis_jobs(specialist_id);
-CREATE INDEX idx_synthesis_jobs_status ON synthesis_jobs(status);
-CREATE INDEX idx_synthesis_jobs_triage ON synthesis_jobs(triage_session_id)
+CREATE INDEX IF NOT EXISTS idx_synthesis_jobs_specialist ON synthesis_jobs(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_synthesis_jobs_status ON synthesis_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_synthesis_jobs_triage ON synthesis_jobs(triage_session_id)
   WHERE triage_session_id IS NOT NULL;
-CREATE INDEX idx_synthesis_jobs_referral ON synthesis_jobs(referral_case_id)
+CREATE INDEX IF NOT EXISTS idx_synthesis_jobs_referral ON synthesis_jobs(referral_case_id)
   WHERE referral_case_id IS NOT NULL;
-CREATE INDEX idx_synthesis_jobs_priority ON synthesis_jobs(priority, queued_at);
+CREATE INDEX IF NOT EXISTS idx_synthesis_jobs_priority ON synthesis_jobs(priority, queued_at);
 
 -- ─────────────────────────────────────────────
 -- TABLE: agent_traces
 -- Detailed execution log per tool call per job
 -- Enables specialist to see exactly what data was used
 -- ─────────────────────────────────────────────
-CREATE TABLE agent_traces (
+CREATE TABLE IF NOT EXISTS agent_traces (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   job_id          UUID NOT NULL REFERENCES synthesis_jobs(id) ON DELETE CASCADE,
   specialist_id   UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
@@ -109,15 +119,15 @@ CREATE TABLE agent_traces (
   executed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_traces_job ON agent_traces(job_id, executed_at);
-CREATE INDEX idx_traces_specialist ON agent_traces(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_traces_job ON agent_traces(job_id, executed_at);
+CREATE INDEX IF NOT EXISTS idx_traces_specialist ON agent_traces(specialist_id);
 
 -- ─────────────────────────────────────────────
 -- TABLE: synthesis_findings
 -- Structured findings extracted by synthesis agent
 -- Stored separately so they can be searched/filtered
 -- ─────────────────────────────────────────────
-CREATE TABLE synthesis_findings (
+CREATE TABLE IF NOT EXISTS synthesis_findings (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   job_id          UUID NOT NULL REFERENCES synthesis_jobs(id) ON DELETE CASCADE,
   specialist_id   UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
@@ -130,8 +140,8 @@ CREATE TABLE synthesis_findings (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_findings_job ON synthesis_findings(job_id);
-CREATE INDEX idx_findings_red_flag ON synthesis_findings(job_id)
+CREATE INDEX IF NOT EXISTS idx_findings_job ON synthesis_findings(job_id);
+CREATE INDEX IF NOT EXISTS idx_findings_red_flag ON synthesis_findings(job_id)
   WHERE is_red_flag = TRUE;
 
 -- ─────────────────────────────────────────────
@@ -140,7 +150,7 @@ CREATE INDEX idx_findings_red_flag ON synthesis_findings(job_id)
 -- Allows health API to show module status without external monitoring
 -- This is the key to knowing "M4 chatbot is degraded" from the dashboard
 -- ─────────────────────────────────────────────
-CREATE TABLE module_health_log (
+CREATE TABLE IF NOT EXISTS module_health_log (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   module          TEXT NOT NULL,       -- 'M1','M2','M3','M4','M5','M6'
   service         TEXT NOT NULL,       -- 'groq_api','whatsapp_api','supabase'
@@ -151,8 +161,8 @@ CREATE TABLE module_health_log (
   recorded_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_health_module ON module_health_log(module, recorded_at DESC);
-CREATE INDEX idx_health_service ON module_health_log(service, recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_health_module ON module_health_log(module, recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_health_service ON module_health_log(service, recorded_at DESC);
 
 -- Keep only last 7 days of health logs — they are high-volume
 CREATE OR REPLACE FUNCTION purge_old_health_logs()
@@ -251,9 +261,11 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- ─────────────────────────────────────────────
 -- TRIGGERS
 -- ─────────────────────────────────────────────
-CREATE TRIGGER synthesis_jobs_updated_at
-  BEFORE UPDATE ON synthesis_jobs
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER synthesis_jobs_updated_at
+    BEFORE UPDATE ON synthesis_jobs
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Auto-trigger synthesis when triage completes
 -- Decoupled: inserts a job record — agent picks it up asynchronously
@@ -276,9 +288,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE TRIGGER auto_synthesis_on_triage
-  AFTER UPDATE ON triage_sessions
-  FOR EACH ROW EXECUTE FUNCTION trigger_synthesis_on_triage_complete();
+DO $$ BEGIN
+  CREATE TRIGGER auto_synthesis_on_triage
+    AFTER UPDATE ON triage_sessions
+    FOR EACH ROW EXECUTE FUNCTION trigger_synthesis_on_triage_complete();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────
 -- ROW LEVEL SECURITY
@@ -288,18 +302,26 @@ ALTER TABLE agent_traces      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE synthesis_findings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE module_health_log ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY synthesis_jobs_isolation ON synthesis_jobs
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY synthesis_jobs_isolation ON synthesis_jobs
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY traces_isolation ON agent_traces
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY traces_isolation ON agent_traces
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY findings_isolation ON synthesis_findings
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY findings_isolation ON synthesis_findings
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Health log: specialist sees only their own; infra (null specialist_id) visible to admin
-CREATE POLICY health_log_policy ON module_health_log
-  FOR SELECT USING (
-    specialist_id = auth.uid()
-    OR specialist_id IS NULL
-  );
+DO $$ BEGIN
+  CREATE POLICY health_log_policy ON module_health_log
+    FOR SELECT USING (
+      specialist_id = auth.uid()
+      OR specialist_id IS NULL
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;

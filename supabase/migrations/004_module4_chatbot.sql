@@ -6,23 +6,31 @@
 -- ─────────────────────────────────────────────
 -- ENUMS
 -- ─────────────────────────────────────────────
-CREATE TYPE appointment_status AS ENUM (
-  'confirmed', 'rescheduled', 'cancelled', 'completed', 'no_show'
-);
+DO $$ BEGIN
+  CREATE TYPE appointment_status AS ENUM (
+    'confirmed', 'rescheduled', 'cancelled', 'completed', 'no_show'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE booking_channel AS ENUM ('whatsapp', 'web_widget', 'manual', 'referral');
+DO $$ BEGIN
+  CREATE TYPE booking_channel AS ENUM ('whatsapp', 'web_widget', 'manual', 'referral');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE chat_outcome AS ENUM (
-  'answered', 'booked', 'escalated', 'emergency', 'abandoned'
-);
+DO $$ BEGIN
+  CREATE TYPE chat_outcome AS ENUM (
+    'answered', 'booked', 'escalated', 'emergency', 'abandoned'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE chat_role AS ENUM ('patient', 'assistant', 'system');
+DO $$ BEGIN
+  CREATE TYPE chat_role AS ENUM ('patient', 'assistant', 'system');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────
 -- TABLE: chatbot_configs
 -- Specialist's practice configuration for the chatbot
 -- ─────────────────────────────────────────────
-CREATE TABLE chatbot_configs (
+CREATE TABLE IF NOT EXISTS chatbot_configs (
   id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialist_id         UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
   clinic_name           TEXT,
@@ -53,14 +61,14 @@ CREATE TABLE chatbot_configs (
   UNIQUE(specialist_id)
 );
 
-CREATE INDEX idx_chatbot_configs_specialist ON chatbot_configs(specialist_id);
-CREATE INDEX idx_chatbot_configs_whatsapp ON chatbot_configs(whatsapp_number);
+CREATE INDEX IF NOT EXISTS idx_chatbot_configs_specialist ON chatbot_configs(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_chatbot_configs_whatsapp ON chatbot_configs(whatsapp_number);
 
 -- ─────────────────────────────────────────────
 -- TABLE: chatbot_faqs
 -- Specialist-defined Q&A pairs (priority knowledge)
 -- ─────────────────────────────────────────────
-CREATE TABLE chatbot_faqs (
+CREATE TABLE IF NOT EXISTS chatbot_faqs (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialist_id   UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
   question        TEXT NOT NULL,
@@ -70,13 +78,13 @@ CREATE TABLE chatbot_faqs (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_faqs_specialist_id ON chatbot_faqs(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_faqs_specialist_id ON chatbot_faqs(specialist_id);
 
 -- ─────────────────────────────────────────────
 -- TABLE: appointment_slot_templates
 -- Weekly schedule template — generates actual slots
 -- ─────────────────────────────────────────────
-CREATE TABLE appointment_slot_templates (
+CREATE TABLE IF NOT EXISTS appointment_slot_templates (
   id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialist_id       UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
   day_of_week         INTEGER NOT NULL CHECK (day_of_week BETWEEN 0 AND 6), -- 0=Sun
@@ -88,13 +96,13 @@ CREATE TABLE appointment_slot_templates (
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_slot_templates_specialist ON appointment_slot_templates(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_slot_templates_specialist ON appointment_slot_templates(specialist_id);
 
 -- ─────────────────────────────────────────────
 -- TABLE: appointment_slots
 -- Generated slots for specific dates
 -- ─────────────────────────────────────────────
-CREATE TABLE appointment_slots (
+CREATE TABLE IF NOT EXISTS appointment_slots (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialist_id   UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
   slot_date       DATE NOT NULL,
@@ -108,15 +116,15 @@ CREATE TABLE appointment_slots (
   UNIQUE(specialist_id, slot_date, slot_time)
 );
 
-CREATE INDEX idx_slots_specialist_date ON appointment_slots(specialist_id, slot_date);
-CREATE INDEX idx_slots_available ON appointment_slots(specialist_id, slot_date, is_blocked)
+CREATE INDEX IF NOT EXISTS idx_slots_specialist_date ON appointment_slots(specialist_id, slot_date);
+CREATE INDEX IF NOT EXISTS idx_slots_available ON appointment_slots(specialist_id, slot_date, is_blocked)
   WHERE booked_count < max_capacity AND is_blocked = FALSE;
 
 -- ─────────────────────────────────────────────
 -- TABLE: appointments
 -- Confirmed appointment bookings
 -- ─────────────────────────────────────────────
-CREATE TABLE appointments (
+CREATE TABLE IF NOT EXISTS appointments (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialist_id     UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
   slot_id           UUID NOT NULL REFERENCES appointment_slots(id),
@@ -136,17 +144,17 @@ CREATE TABLE appointments (
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_appointments_specialist ON appointments(specialist_id);
-CREATE INDEX idx_appointments_slot ON appointments(slot_id);
-CREATE INDEX idx_appointments_mobile ON appointments(patient_mobile);
-CREATE INDEX idx_appointments_status ON appointments(status);
-CREATE INDEX idx_appointments_date ON appointments(specialist_id, booked_at DESC);
+CREATE INDEX IF NOT EXISTS idx_appointments_specialist ON appointments(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_appointments_slot ON appointments(slot_id);
+CREATE INDEX IF NOT EXISTS idx_appointments_mobile ON appointments(patient_mobile);
+CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status);
+CREATE INDEX IF NOT EXISTS idx_appointments_date ON appointments(specialist_id, booked_at DESC);
 
 -- ─────────────────────────────────────────────
 -- TABLE: chat_sessions
 -- One per patient conversation
 -- ─────────────────────────────────────────────
-CREATE TABLE chat_sessions (
+CREATE TABLE IF NOT EXISTS chat_sessions (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialist_id     UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
   channel           booking_channel NOT NULL DEFAULT 'whatsapp',
@@ -163,15 +171,15 @@ CREATE TABLE chat_sessions (
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_sessions_specialist ON chat_sessions(specialist_id);
-CREATE INDEX idx_sessions_mobile ON chat_sessions(patient_mobile);
-CREATE INDEX idx_sessions_last_message ON chat_sessions(specialist_id, last_message_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sessions_specialist ON chat_sessions(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_mobile ON chat_sessions(patient_mobile);
+CREATE INDEX IF NOT EXISTS idx_sessions_last_message ON chat_sessions(specialist_id, last_message_at DESC);
 
 -- ─────────────────────────────────────────────
 -- TABLE: chat_messages
 -- Individual messages within a session
 -- ─────────────────────────────────────────────
-CREATE TABLE chat_messages (
+CREATE TABLE IF NOT EXISTS chat_messages (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   session_id      UUID NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
   specialist_id   UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
@@ -183,8 +191,8 @@ CREATE TABLE chat_messages (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_chat_messages_session ON chat_messages(session_id, created_at ASC);
-CREATE INDEX idx_chat_messages_specialist ON chat_messages(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_specialist ON chat_messages(specialist_id);
 
 -- ─────────────────────────────────────────────
 -- FUNCTION: generate slots from template
@@ -295,13 +303,17 @@ $$ LANGUAGE plpgsql;
 -- ─────────────────────────────────────────────
 -- TRIGGERS: updated_at
 -- ─────────────────────────────────────────────
-CREATE TRIGGER chatbot_configs_updated_at
-  BEFORE UPDATE ON chatbot_configs
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER chatbot_configs_updated_at
+    BEFORE UPDATE ON chatbot_configs
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TRIGGER appointments_updated_at
-  BEFORE UPDATE ON appointments
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER appointments_updated_at
+    BEFORE UPDATE ON appointments
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────
 -- ROW LEVEL SECURITY
@@ -314,26 +326,40 @@ ALTER TABLE appointments             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE chat_sessions            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE chat_messages            ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY chatbot_configs_isolation ON chatbot_configs
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY chatbot_configs_isolation ON chatbot_configs
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY faqs_isolation ON chatbot_faqs
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY faqs_isolation ON chatbot_faqs
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY slot_templates_isolation ON appointment_slot_templates
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY slot_templates_isolation ON appointment_slot_templates
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY slots_isolation ON appointment_slots
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY slots_isolation ON appointment_slots
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY appointments_isolation ON appointments
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY appointments_isolation ON appointments
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY sessions_isolation ON chat_sessions
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY sessions_isolation ON chat_sessions
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY chat_messages_isolation ON chat_messages
-  FOR ALL USING (specialist_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY chat_messages_isolation ON chat_messages
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Service role bypass used by webhook handler
 -- (WhatsApp webhook runs with service role — no auth.uid())

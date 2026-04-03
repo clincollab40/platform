@@ -1,43 +1,55 @@
 -- ═══════════════════════════════════════════════════════
--- ClinCollab — Migration 001
+-- ClinCollab — Migration 001 (SAFE / IDEMPOTENT)
 -- Module 1: Identity, Auth, Profiles, Peer Seeds
 -- Multi-tenant isolation via PostgreSQL Row Level Security
+--
+-- Uses IF NOT EXISTS + exception-safe ENUM creation so this
+-- script can be run even after a partial previous attempt.
 -- ═══════════════════════════════════════════════════════
 
--- Enable UUID extension
+-- Extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ─────────────────────────────────────────────
--- ENUMS
+-- ENUMS  (safe — skip if already exists)
 -- ─────────────────────────────────────────────
-CREATE TYPE specialist_role AS ENUM ('specialist', 'admin');
-CREATE TYPE specialist_status AS ENUM ('onboarding', 'active', 'inactive', 'suspended');
-CREATE TYPE peer_seed_status AS ENUM ('seeded', 'matched', 'active', 'drifting', 'silent');
+DO $$ BEGIN
+  CREATE TYPE specialist_role AS ENUM ('specialist', 'admin');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE specialty_type AS ENUM (
-  'interventional_cardiology',
-  'cardiac_surgery',
-  'cardiology',
-  'orthopedics',
-  'spine_surgery',
-  'neurology',
-  'neurosurgery',
-  'gi_surgery',
-  'urology',
-  'oncology',
-  'reproductive_medicine',
-  'dermatology',
-  'ophthalmology',
-  'internal_medicine',
-  'other'
-);
+DO $$ BEGIN
+  CREATE TYPE specialist_status AS ENUM ('onboarding', 'active', 'inactive', 'suspended');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE peer_seed_status AS ENUM ('seeded', 'matched', 'active', 'drifting', 'silent');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE specialty_type AS ENUM (
+    'interventional_cardiology',
+    'cardiac_surgery',
+    'cardiology',
+    'orthopedics',
+    'spine_surgery',
+    'neurology',
+    'neurosurgery',
+    'gi_surgery',
+    'urology',
+    'oncology',
+    'reproductive_medicine',
+    'dermatology',
+    'ophthalmology',
+    'internal_medicine',
+    'other'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────
 -- TABLE: specialists
--- Core identity table — one row per specialist
 -- ─────────────────────────────────────────────
-CREATE TABLE specialists (
+CREATE TABLE IF NOT EXISTS specialists (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   google_id         TEXT UNIQUE NOT NULL,
   email             TEXT UNIQUE NOT NULL,
@@ -53,16 +65,15 @@ CREATE TABLE specialists (
   last_active_at    TIMESTAMPTZ
 );
 
-CREATE INDEX idx_specialists_google_id ON specialists(google_id);
-CREATE INDEX idx_specialists_email ON specialists(email);
-CREATE INDEX idx_specialists_specialty ON specialists(specialty);
-CREATE INDEX idx_specialists_city ON specialists(city);
+CREATE INDEX IF NOT EXISTS idx_specialists_google_id ON specialists(google_id);
+CREATE INDEX IF NOT EXISTS idx_specialists_email ON specialists(email);
+CREATE INDEX IF NOT EXISTS idx_specialists_specialty ON specialists(specialty);
+CREATE INDEX IF NOT EXISTS idx_specialists_city ON specialists(city);
 
 -- ─────────────────────────────────────────────
 -- TABLE: specialist_profiles
--- Extended professional profile — progressive completion
 -- ─────────────────────────────────────────────
-CREATE TABLE specialist_profiles (
+CREATE TABLE IF NOT EXISTS specialist_profiles (
   id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialist_id       UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
   designation         TEXT,
@@ -78,14 +89,12 @@ CREATE TABLE specialist_profiles (
   UNIQUE(specialist_id)
 );
 
-CREATE INDEX idx_specialist_profiles_specialist_id ON specialist_profiles(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_specialist_profiles_specialist_id ON specialist_profiles(specialist_id);
 
 -- ─────────────────────────────────────────────
 -- TABLE: peer_seeds
--- Initial peer network seeded during onboarding
--- Seeds Module 2 Doctor Network Map
 -- ─────────────────────────────────────────────
-CREATE TABLE peer_seeds (
+CREATE TABLE IF NOT EXISTS peer_seeds (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialist_id     UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
   peer_name         TEXT NOT NULL,
@@ -95,19 +104,18 @@ CREATE TABLE peer_seeds (
   peer_phone        TEXT,
   status            peer_seed_status NOT NULL DEFAULT 'seeded',
   last_referral_at  TIMESTAMPTZ,
-  days_since_last   INTEGER, -- computed in queries: EXTRACT(DAY FROM NOW()-last_referral_at)
+  days_since_last   INTEGER,
   seeded_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_peer_seeds_specialist_id ON peer_seeds(specialist_id);
-CREATE INDEX idx_peer_seeds_status ON peer_seeds(status);
+CREATE INDEX IF NOT EXISTS idx_peer_seeds_specialist_id ON peer_seeds(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_peer_seeds_status ON peer_seeds(status);
 
 -- ─────────────────────────────────────────────
 -- TABLE: specialist_consents
--- DISHA-aligned consent tracking
 -- ─────────────────────────────────────────────
-CREATE TABLE specialist_consents (
+CREATE TABLE IF NOT EXISTS specialist_consents (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialist_id     UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
   consent_version   TEXT NOT NULL DEFAULT '1.0',
@@ -116,13 +124,12 @@ CREATE TABLE specialist_consents (
   user_agent        TEXT
 );
 
-CREATE INDEX idx_consents_specialist_id ON specialist_consents(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_consents_specialist_id ON specialist_consents(specialist_id);
 
 -- ─────────────────────────────────────────────
 -- TABLE: device_sessions
--- Track active sessions per specialist
 -- ─────────────────────────────────────────────
-CREATE TABLE device_sessions (
+CREATE TABLE IF NOT EXISTS device_sessions (
   id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialist_id         UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
   refresh_token_hash    TEXT NOT NULL,
@@ -133,13 +140,12 @@ CREATE TABLE device_sessions (
   expires_at            TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '30 days')
 );
 
-CREATE INDEX idx_device_sessions_specialist_id ON device_sessions(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_device_sessions_specialist_id ON device_sessions(specialist_id);
 
 -- ─────────────────────────────────────────────
 -- TABLE: audit_logs
--- Immutable append-only audit trail
 -- ─────────────────────────────────────────────
-CREATE TABLE audit_logs (
+CREATE TABLE IF NOT EXISTS audit_logs (
   id              BIGSERIAL PRIMARY KEY,
   actor_id        UUID,
   actor_role      TEXT NOT NULL,
@@ -152,16 +158,21 @@ CREATE TABLE audit_logs (
   ts              TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_audit_logs_actor_id ON audit_logs(actor_id);
-CREATE INDEX idx_audit_logs_ts ON audit_logs(ts DESC);
-CREATE INDEX idx_audit_logs_action ON audit_logs(action);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_actor_id ON audit_logs(actor_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_ts ON audit_logs(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
 
--- Prevent updates and deletes on audit_logs
-CREATE RULE no_update_audit AS ON UPDATE TO audit_logs DO INSTEAD NOTHING;
-CREATE RULE no_delete_audit AS ON DELETE TO audit_logs DO INSTEAD NOTHING;
+-- Immutable audit — prevent updates and deletes
+DO $$ BEGIN
+  CREATE RULE no_update_audit AS ON UPDATE TO audit_logs DO INSTEAD NOTHING;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE RULE no_delete_audit AS ON DELETE TO audit_logs DO INSTEAD NOTHING;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────
--- FUNCTION: updated_at trigger
+-- FUNCTION + TRIGGER: updated_at
 -- ─────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
@@ -171,88 +182,100 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER specialists_updated_at
-  BEFORE UPDATE ON specialists
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER specialists_updated_at
+    BEFORE UPDATE ON specialists
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TRIGGER profiles_updated_at
-  BEFORE UPDATE ON specialist_profiles
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER profiles_updated_at
+    BEFORE UPDATE ON specialist_profiles
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TRIGGER peer_seeds_updated_at
-  BEFORE UPDATE ON peer_seeds
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER peer_seeds_updated_at
+    BEFORE UPDATE ON peer_seeds
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────
 -- ROW LEVEL SECURITY
--- The privacy guarantee — structural, not policy
 -- ─────────────────────────────────────────────
-ALTER TABLE specialists ENABLE ROW LEVEL SECURITY;
+ALTER TABLE specialists         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE specialist_profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE peer_seeds ENABLE ROW LEVEL SECURITY;
+ALTER TABLE peer_seeds          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE specialist_consents ENABLE ROW LEVEL SECURITY;
-ALTER TABLE device_sessions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE device_sessions     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_logs          ENABLE ROW LEVEL SECURITY;
 
--- specialists: own row only
-CREATE POLICY specialists_own_row ON specialists
-  FOR ALL USING (id = auth.uid());
+-- specialists: own row + admin read
+DO $$ BEGIN
+  CREATE POLICY specialists_own_row ON specialists
+    FOR ALL USING (id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
--- Admin bypass for specialists
-CREATE POLICY specialists_admin_read ON specialists
-  FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM specialists s
-      WHERE s.id = auth.uid() AND s.role = 'admin'
-    )
-  );
+DO $$ BEGIN
+  CREATE POLICY specialists_admin_read ON specialists
+    FOR SELECT USING (
+      EXISTS (SELECT 1 FROM specialists s WHERE s.id = auth.uid() AND s.role = 'admin')
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
--- specialist_profiles: own row only
-CREATE POLICY profiles_own_row ON specialist_profiles
-  FOR ALL USING (specialist_id = auth.uid());
+-- specialist_profiles: own row + admin read
+DO $$ BEGIN
+  CREATE POLICY profiles_own_row ON specialist_profiles
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY profiles_admin_read ON specialist_profiles
-  FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM specialists s
-      WHERE s.id = auth.uid() AND s.role = 'admin'
-    )
-  );
+DO $$ BEGIN
+  CREATE POLICY profiles_admin_read ON specialist_profiles
+    FOR SELECT USING (
+      EXISTS (SELECT 1 FROM specialists s WHERE s.id = auth.uid() AND s.role = 'admin')
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
--- peer_seeds: own rows only — critical privacy boundary
-CREATE POLICY peer_seeds_own_rows ON peer_seeds
-  FOR ALL USING (specialist_id = auth.uid());
+-- peer_seeds: own rows only
+DO $$ BEGIN
+  CREATE POLICY peer_seeds_own_rows ON peer_seeds
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
--- specialist_consents: own row only
-CREATE POLICY consents_own_row ON specialist_consents
-  FOR ALL USING (specialist_id = auth.uid());
+-- specialist_consents
+DO $$ BEGIN
+  CREATE POLICY consents_own_row ON specialist_consents
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY consents_admin_read ON specialist_consents
-  FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM specialists s
-      WHERE s.id = auth.uid() AND s.role = 'admin'
-    )
-  );
+DO $$ BEGIN
+  CREATE POLICY consents_admin_read ON specialist_consents
+    FOR SELECT USING (
+      EXISTS (SELECT 1 FROM specialists s WHERE s.id = auth.uid() AND s.role = 'admin')
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
--- device_sessions: own sessions only
-CREATE POLICY sessions_own_rows ON device_sessions
-  FOR ALL USING (specialist_id = auth.uid());
+-- device_sessions
+DO $$ BEGIN
+  CREATE POLICY sessions_own_rows ON device_sessions
+    FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
--- audit_logs: append only for authenticated users, admin can read
-CREATE POLICY audit_insert ON audit_logs
-  FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+-- audit_logs
+DO $$ BEGIN
+  CREATE POLICY audit_insert ON audit_logs
+    FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY audit_admin_read ON audit_logs
-  FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM specialists s
-      WHERE s.id = auth.uid() AND s.role = 'admin'
-    )
-  );
+DO $$ BEGIN
+  CREATE POLICY audit_admin_read ON audit_logs
+    FOR SELECT USING (
+      EXISTS (SELECT 1 FROM specialists s WHERE s.id = auth.uid() AND s.role = 'admin')
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────
--- FUNCTION: auto-create profile on specialist insert
+-- FUNCTION + TRIGGER: auto-create profile on specialist insert
 -- ─────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION create_specialist_profile()
 RETURNS TRIGGER AS $$
@@ -264,6 +287,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE TRIGGER auto_create_profile
-  AFTER INSERT ON specialists
-  FOR EACH ROW EXECUTE FUNCTION create_specialist_profile();
+DO $$ BEGIN
+  CREATE TRIGGER auto_create_profile
+    AFTER INSERT ON specialists
+    FOR EACH ROW EXECUTE FUNCTION create_specialist_profile();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;

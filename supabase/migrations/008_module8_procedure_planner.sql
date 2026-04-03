@@ -22,56 +22,68 @@
 -- ─────────────────────────────────────────────────────────────
 -- ENUMS
 -- ─────────────────────────────────────────────────────────────
-CREATE TYPE procedure_plan_status AS ENUM (
-  'counselling',       -- specialist explaining to patient
-  'patient_deciding',  -- patient requested time to decide
-  'declined',          -- patient declined
-  'scheduled',         -- date and slot confirmed
-  'workup_in_progress',-- investigations being done
-  'workup_complete',   -- all investigations done and reviewed
-  'ready_for_procedure',-- all checks passed
-  'in_progress',       -- procedure happening now
-  'completed',         -- procedure done
-  'cancelled',         -- cancelled after scheduling
-  'postponed'          -- postponed, new date TBD
-);
+DO $$ BEGIN
+  CREATE TYPE procedure_plan_status AS ENUM (
+    'counselling',       -- specialist explaining to patient
+    'patient_deciding',  -- patient requested time to decide
+    'declined',          -- patient declined
+    'scheduled',         -- date and slot confirmed
+    'workup_in_progress',-- investigations being done
+    'workup_complete',   -- all investigations done and reviewed
+    'ready_for_procedure',-- all checks passed
+    'in_progress',       -- procedure happening now
+    'completed',         -- procedure done
+    'cancelled',         -- cancelled after scheduling
+    'postponed'          -- postponed, new date TBD
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE resource_type AS ENUM (
-  'ot_room',
-  'anaesthesiologist',
-  'consumable',        -- stent, valve, graft, implant
-  'instrument_set',    -- specific instrument tray
-  'support_clinician', -- perfusionist, scrub nurse, neuro-navigation tech
-  'blood_products',    -- crossmatch, packed cells, FFP
-  'icu_bed',
-  'equipment',         -- c-arm, microscope, cell saver, echo machine
-  'medication',        -- pre-procedure drug (contrast, antibiotic prophylaxis)
-  'other'
-);
+DO $$ BEGIN
+  CREATE TYPE resource_type AS ENUM (
+    'ot_room',
+    'anaesthesiologist',
+    'consumable',        -- stent, valve, graft, implant
+    'instrument_set',    -- specific instrument tray
+    'support_clinician', -- perfusionist, scrub nurse, neuro-navigation tech
+    'blood_products',    -- crossmatch, packed cells, FFP
+    'icu_bed',
+    'equipment',         -- c-arm, microscope, cell saver, echo machine
+    'medication',        -- pre-procedure drug (contrast, antibiotic prophylaxis)
+    'other'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE resource_status AS ENUM (
-  'required', 'requested', 'confirmed', 'unavailable', 'not_needed'
-);
+DO $$ BEGIN
+  CREATE TYPE resource_status AS ENUM (
+    'required', 'requested', 'confirmed', 'unavailable', 'not_needed'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE workup_status AS ENUM (
-  'not_ordered', 'ordered', 'done_pending_review', 'reviewed_normal',
-  'reviewed_abnormal', 'reviewed_acceptable', 'waived'
-);
+DO $$ BEGIN
+  CREATE TYPE workup_status AS ENUM (
+    'not_ordered', 'ordered', 'done_pending_review', 'reviewed_normal',
+    'reviewed_abnormal', 'reviewed_acceptable', 'waived'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE consent_status AS ENUM (
-  'not_started', 'explained', 'questions_answered', 'signed', 'refused'
-);
+DO $$ BEGIN
+  CREATE TYPE consent_status AS ENUM (
+    'not_started', 'explained', 'questions_answered', 'signed', 'refused'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE alert_stage AS ENUM (
-  'd_minus_7',   -- one week before
-  'd_minus_3',   -- three days before
-  'd_minus_1',   -- day before
-  'd_day_morning',-- morning of procedure
-  'post_procedure_24h',
-  'post_procedure_72h',
-  'post_procedure_7d',
-  'custom'
-);
+DO $$ BEGIN
+  CREATE TYPE alert_stage AS ENUM (
+    'd_minus_7',   -- one week before
+    'd_minus_3',   -- three days before
+    'd_minus_1',   -- day before
+    'd_day_morning',-- morning of procedure
+    'post_procedure_24h',
+    'post_procedure_72h',
+    'post_procedure_7d',
+    'custom'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────────────────────
 -- TABLE: procedure_protocols
@@ -79,7 +91,7 @@ CREATE TYPE alert_stage AS ENUM (
 -- needed for this type of procedure. The specialist builds this
 -- once; it pre-populates every patient plan for that procedure.
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE procedure_protocols (
+CREATE TABLE IF NOT EXISTS procedure_protocols (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialist_id     UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
   procedure_name    TEXT NOT NULL,         -- e.g. 'Coronary Angioplasty (PCI)'
@@ -131,16 +143,16 @@ CREATE TABLE procedure_protocols (
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_proc_protocols_specialist ON procedure_protocols(specialist_id);
-CREATE INDEX idx_proc_protocols_specialty  ON procedure_protocols(specialty_context);
-CREATE INDEX idx_proc_protocols_active     ON procedure_protocols(specialist_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_proc_protocols_specialist ON procedure_protocols(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_proc_protocols_specialty  ON procedure_protocols(specialty_context);
+CREATE INDEX IF NOT EXISTS idx_proc_protocols_active     ON procedure_protocols(specialist_id, is_active);
 
 -- ─────────────────────────────────────────────────────────────
 -- TABLE: procedure_plans
 -- One per patient per scheduled procedure
 -- Populated from the protocol + patient-specific customisation
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE procedure_plans (
+CREATE TABLE IF NOT EXISTS procedure_plans (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialist_id     UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
   protocol_id       UUID REFERENCES procedure_protocols(id),
@@ -216,18 +228,18 @@ CREATE TABLE procedure_plans (
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_plans_specialist ON procedure_plans(specialist_id);
-CREATE INDEX idx_plans_status     ON procedure_plans(specialist_id, status);
-CREATE INDEX idx_plans_date       ON procedure_plans(specialist_id, scheduled_date);
-CREATE INDEX idx_plans_referral   ON procedure_plans(referral_case_id) WHERE referral_case_id IS NOT NULL;
-CREATE INDEX idx_plans_patient    ON procedure_plans(specialist_id, patient_name);
+CREATE INDEX IF NOT EXISTS idx_plans_specialist ON procedure_plans(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_plans_status     ON procedure_plans(specialist_id, status);
+CREATE INDEX IF NOT EXISTS idx_plans_date       ON procedure_plans(specialist_id, scheduled_date);
+CREATE INDEX IF NOT EXISTS idx_plans_referral   ON procedure_plans(referral_case_id) WHERE referral_case_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_plans_patient    ON procedure_plans(specialist_id, patient_name);
 
 -- ─────────────────────────────────────────────────────────────
 -- TABLE: procedure_resources
 -- Every resource required for this specific patient's procedure
 -- Pre-populated from protocol, then specialist confirms/modifies
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE procedure_resources (
+CREATE TABLE IF NOT EXISTS procedure_resources (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   plan_id           UUID NOT NULL REFERENCES procedure_plans(id) ON DELETE CASCADE,
   specialist_id     UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
@@ -244,16 +256,16 @@ CREATE TABLE procedure_resources (
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_resources_plan       ON procedure_resources(plan_id);
-CREATE INDEX idx_resources_specialist ON procedure_resources(specialist_id);
-CREATE INDEX idx_resources_type       ON procedure_resources(plan_id, resource_type);
+CREATE INDEX IF NOT EXISTS idx_resources_plan       ON procedure_resources(plan_id);
+CREATE INDEX IF NOT EXISTS idx_resources_specialist ON procedure_resources(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_resources_type       ON procedure_resources(plan_id, resource_type);
 
 -- ─────────────────────────────────────────────────────────────
 -- TABLE: procedure_workup
 -- Pre-procedure investigations — track each investigation
 -- ordered, received, reviewed, and action taken on abnormals
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE procedure_workup (
+CREATE TABLE IF NOT EXISTS procedure_workup (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   plan_id           UUID NOT NULL REFERENCES procedure_plans(id) ON DELETE CASCADE,
   specialist_id     UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
@@ -275,17 +287,17 @@ CREATE TABLE procedure_workup (
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_workup_plan       ON procedure_workup(plan_id);
-CREATE INDEX idx_workup_specialist ON procedure_workup(specialist_id);
-CREATE INDEX idx_workup_abnormal   ON procedure_workup(plan_id) WHERE is_abnormal = TRUE;
-CREATE INDEX idx_workup_incomplete ON procedure_workup(plan_id) WHERE status NOT IN ('reviewed_normal','reviewed_acceptable','reviewed_abnormal','waived');
+CREATE INDEX IF NOT EXISTS idx_workup_plan       ON procedure_workup(plan_id);
+CREATE INDEX IF NOT EXISTS idx_workup_specialist ON procedure_workup(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_workup_abnormal   ON procedure_workup(plan_id) WHERE is_abnormal = TRUE;
+CREATE INDEX IF NOT EXISTS idx_workup_incomplete ON procedure_workup(plan_id) WHERE status NOT IN ('reviewed_normal','reviewed_acceptable','reviewed_abnormal','waived');
 
 -- ─────────────────────────────────────────────────────────────
 -- TABLE: procedure_medication_holds
 -- Track which medications to hold, for how long, when to resume
 -- Pre-populated from protocol, specialist reviews for each patient
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE procedure_medication_holds (
+CREATE TABLE IF NOT EXISTS procedure_medication_holds (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   plan_id           UUID NOT NULL REFERENCES procedure_plans(id) ON DELETE CASCADE,
   specialist_id     UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
@@ -303,8 +315,8 @@ CREATE TABLE procedure_medication_holds (
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_medholds_plan       ON procedure_medication_holds(plan_id);
-CREATE INDEX idx_medholds_specialist ON procedure_medication_holds(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_medholds_plan       ON procedure_medication_holds(plan_id);
+CREATE INDEX IF NOT EXISTS idx_medholds_specialist ON procedure_medication_holds(specialist_id);
 
 -- ─────────────────────────────────────────────────────────────
 -- TABLE: patient_care_plan
@@ -312,7 +324,7 @@ CREATE INDEX idx_medholds_specialist ON procedure_medication_holds(specialist_id
 -- Delivered via WhatsApp in stages (D-7, D-1, D-day, post-procedure)
 -- Each section is rich: timing, instructions, what to watch for
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE patient_care_plans (
+CREATE TABLE IF NOT EXISTS patient_care_plans (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   plan_id           UUID NOT NULL REFERENCES procedure_plans(id) ON DELETE CASCADE,
   specialist_id     UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
@@ -348,15 +360,15 @@ CREATE TABLE patient_care_plans (
   UNIQUE(plan_id)
 );
 
-CREATE INDEX idx_careplan_plan       ON patient_care_plans(plan_id);
-CREATE INDEX idx_careplan_specialist ON patient_care_plans(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_careplan_plan       ON patient_care_plans(plan_id);
+CREATE INDEX IF NOT EXISTS idx_careplan_specialist ON patient_care_plans(specialist_id);
 
 -- ─────────────────────────────────────────────────────────────
 -- TABLE: procedure_consent
 -- Structured consent documentation — what was explained,
 -- what questions were asked, patient's understanding
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE procedure_consent (
+CREATE TABLE IF NOT EXISTS procedure_consent (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   plan_id           UUID NOT NULL REFERENCES procedure_plans(id) ON DELETE CASCADE,
   specialist_id     UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
@@ -395,14 +407,14 @@ CREATE TABLE procedure_consent (
   UNIQUE(plan_id)
 );
 
-CREATE INDEX idx_consent_plan       ON procedure_consent(plan_id);
-CREATE INDEX idx_consent_specialist ON procedure_consent(specialist_id);
+CREATE INDEX IF NOT EXISTS idx_consent_plan       ON procedure_consent(plan_id);
+CREATE INDEX IF NOT EXISTS idx_consent_specialist ON procedure_consent(specialist_id);
 
 -- ─────────────────────────────────────────────────────────────
 -- TABLE: procedure_checklist_responses
 -- Day-of WHO surgical safety checklist responses
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE procedure_checklist_responses (
+CREATE TABLE IF NOT EXISTS procedure_checklist_responses (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   plan_id           UUID NOT NULL REFERENCES procedure_plans(id) ON DELETE CASCADE,
   specialist_id     UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
@@ -414,13 +426,13 @@ CREATE TABLE procedure_checklist_responses (
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_checklist_plan ON procedure_checklist_responses(plan_id);
+CREATE INDEX IF NOT EXISTS idx_checklist_plan ON procedure_checklist_responses(plan_id);
 
 -- ─────────────────────────────────────────────────────────────
 -- TABLE: procedure_alert_log
 -- Immutable log of every scheduled alert sent
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE procedure_alert_log (
+CREATE TABLE IF NOT EXISTS procedure_alert_log (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   plan_id           UUID NOT NULL REFERENCES procedure_plans(id) ON DELETE CASCADE,
   specialist_id     UUID NOT NULL REFERENCES specialists(id) ON DELETE CASCADE,
@@ -434,15 +446,15 @@ CREATE TABLE procedure_alert_log (
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_alerts_plan      ON procedure_alert_log(plan_id);
-CREATE INDEX idx_alerts_scheduled ON procedure_alert_log(scheduled_for)
+CREATE INDEX IF NOT EXISTS idx_alerts_plan      ON procedure_alert_log(plan_id);
+CREATE INDEX IF NOT EXISTS idx_alerts_scheduled ON procedure_alert_log(scheduled_for)
   WHERE delivery_status = 'sent';
 
 -- ─────────────────────────────────────────────────────────────
 -- TABLE: procedure_protocol_defaults
 -- Pre-seeded specialty defaults — read-only starting points
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE procedure_protocol_defaults (
+CREATE TABLE IF NOT EXISTS procedure_protocol_defaults (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   specialty         TEXT NOT NULL,
   procedure_name    TEXT NOT NULL,
@@ -462,7 +474,7 @@ CREATE TABLE procedure_protocol_defaults (
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_defaults_specialty ON procedure_protocol_defaults(specialty);
+CREATE INDEX IF NOT EXISTS idx_defaults_specialty ON procedure_protocol_defaults(specialty);
 
 -- ─────────────────────────────────────────────────────────────
 -- FUNCTION: populate plan from protocol (atomic)
@@ -579,25 +591,35 @@ $$ LANGUAGE SQL SECURITY DEFINER;
 -- ─────────────────────────────────────────────────────────────
 -- TRIGGERS
 -- ─────────────────────────────────────────────────────────────
-CREATE TRIGGER plans_updated_at
-  BEFORE UPDATE ON procedure_plans
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER plans_updated_at
+    BEFORE UPDATE ON procedure_plans
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TRIGGER protocols_updated_at
-  BEFORE UPDATE ON procedure_protocols
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER protocols_updated_at
+    BEFORE UPDATE ON procedure_protocols
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TRIGGER workup_updated_at
-  BEFORE UPDATE ON procedure_workup
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER workup_updated_at
+    BEFORE UPDATE ON procedure_workup
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TRIGGER careplan_updated_at
-  BEFORE UPDATE ON patient_care_plans
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER careplan_updated_at
+    BEFORE UPDATE ON patient_care_plans
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TRIGGER consent_updated_at
-  BEFORE UPDATE ON procedure_consent
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER consent_updated_at
+    BEFORE UPDATE ON procedure_consent
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Auto-update workup_complete flag when workup items change
 CREATE OR REPLACE FUNCTION update_plan_workup_flag()
@@ -610,9 +632,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER workup_completion_check
-  AFTER INSERT OR UPDATE ON procedure_workup
-  FOR EACH ROW EXECUTE FUNCTION update_plan_workup_flag();
+DO $$ BEGIN
+  CREATE TRIGGER workup_completion_check
+    AFTER INSERT OR UPDATE ON procedure_workup
+    FOR EACH ROW EXECUTE FUNCTION update_plan_workup_flag();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Auto-update resources_confirmed flag when resources change
 CREATE OR REPLACE FUNCTION update_plan_resources_flag()
@@ -625,9 +649,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER resource_confirmation_check
-  AFTER INSERT OR UPDATE ON procedure_resources
-  FOR EACH ROW EXECUTE FUNCTION update_plan_resources_flag();
+DO $$ BEGIN
+  CREATE TRIGGER resource_confirmation_check
+    AFTER INSERT OR UPDATE ON procedure_resources
+    FOR EACH ROW EXECUTE FUNCTION update_plan_resources_flag();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────────────────────
 -- ROW LEVEL SECURITY
@@ -643,16 +669,36 @@ ALTER TABLE procedure_checklist_responses  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE procedure_alert_log            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE procedure_protocol_defaults    ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY protocols_isolation    ON procedure_protocols         FOR ALL USING (specialist_id = auth.uid());
-CREATE POLICY plans_isolation        ON procedure_plans             FOR ALL USING (specialist_id = auth.uid());
-CREATE POLICY resources_isolation    ON procedure_resources         FOR ALL USING (specialist_id = auth.uid());
-CREATE POLICY workup_isolation       ON procedure_workup            FOR ALL USING (specialist_id = auth.uid());
-CREATE POLICY medholds_isolation     ON procedure_medication_holds  FOR ALL USING (specialist_id = auth.uid());
-CREATE POLICY careplan_isolation     ON patient_care_plans          FOR ALL USING (specialist_id = auth.uid());
-CREATE POLICY consent_isolation      ON procedure_consent           FOR ALL USING (specialist_id = auth.uid());
-CREATE POLICY checklist_isolation    ON procedure_checklist_responses FOR ALL USING (specialist_id = auth.uid());
-CREATE POLICY alerts_isolation       ON procedure_alert_log         FOR ALL USING (specialist_id = auth.uid());
-CREATE POLICY defaults_read          ON procedure_protocol_defaults FOR SELECT USING (auth.uid() IS NOT NULL);
+DO $$ BEGIN
+  CREATE POLICY protocols_isolation    ON procedure_protocols         FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY plans_isolation        ON procedure_plans             FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY resources_isolation    ON procedure_resources         FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY workup_isolation       ON procedure_workup            FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY medholds_isolation     ON procedure_medication_holds  FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY careplan_isolation     ON patient_care_plans          FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY consent_isolation      ON procedure_consent           FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY checklist_isolation    ON procedure_checklist_responses FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY alerts_isolation       ON procedure_alert_log         FOR ALL USING (specialist_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY defaults_read          ON procedure_protocol_defaults FOR SELECT USING (auth.uid() IS NOT NULL);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────────────────────
 -- SEED: Specialty procedure protocol defaults
