@@ -618,14 +618,14 @@ ON CONFLICT DO NOTHING;
 -- Table is procedure_workup (no 's'), status uses workup_status enum
 INSERT INTO procedure_workup
   (plan_id, specialist_id, investigation, category, mandatory, status,
-   result_value, result_date, reviewed_at, notes, sort_order)
+   result_value, result_date, reviewed_at, sort_order)
 SELECT
   (SELECT id FROM procedure_plans WHERE patient_name = 'Deepak Malhotra' LIMIT 1),
   (SELECT id FROM specialists ORDER BY created_at LIMIT 1),
   w.item, w.cat, true, 'reviewed_normal'::workup_status,
-  w.result, CURRENT_DATE - (w.h || ' hours')::INTERVAL,
+  w.result, (CURRENT_DATE - (w.h || ' hours')::INTERVAL)::DATE,
   NOW() - (w.h || ' hours')::INTERVAL,
-  w.note, w.ord
+  w.ord
 FROM (VALUES
   ('CBC + Coagulation profile',       'blood',   'Hb 11.2, Plt 210K, INR 1.0. Normal.',                             2, 1),
   ('Serum Creatinine + eGFR',         'blood',   'Cr 1.6, eGFR 42. CKD 3b — pre-hydration started.',               2, 2),
