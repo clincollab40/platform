@@ -49,7 +49,15 @@ export default async function NetworkPage({
   }
   const benchmark = CITY_BENCHMARKS[specialist.city] ?? CITY_BENCHMARKS.default
 
-  const allReferrers = referrers || []
+  // Deduplicate by name — keeps the row with the highest referral count
+  // (prevents duplicate display if seed was run multiple times before unique constraint existed)
+  const seenNames = new Map<string, NonNullable<typeof referrers>[0]>()
+  for (const r of (referrers || [])) {
+    const key = r.name.toLowerCase().trim()
+    const prev = seenNames.get(key)
+    if (!prev || r.total_referrals > prev.total_referrals) seenNames.set(key, r)
+  }
+  const allReferrers = Array.from(seenNames.values())
   const activeCount  = allReferrers.filter(r => r.status === 'active').length
   const silentCount  = allReferrers.filter(r => r.status === 'silent').length
   const healthScore  = (scoreData as number) ?? 0
@@ -70,7 +78,7 @@ export default async function NetworkPage({
         ? { text: 'Start by adding your first referrer to build network intelligence.', severity: 'info' as const }
         : { text: `${allReferrers.length} total referrers mapped in your network.`, severity: 'info' as const },
     ],
-    benchmark: `Specialists in ${specialist.city} with ${benchmark}+ active referrers achieve 34% more case volume.`,
+    benchmark: `Platform data: specialists in ${specialist.city} with ${benchmark}+ active referrers achieve 34% more case volume on average.`,
     cta:           { label: 'Add new referrer',       href: '/network/add' },
     secondaryCta:  { label: 'Re-engage silent peers', href: '/network?filter=silent' },
   }

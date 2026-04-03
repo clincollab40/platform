@@ -4,6 +4,18 @@ import { useState, useMemo } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 
+// ── Classification criteria (days since last referral) ───────────────────────
+const CRITERIA_INFO = [
+  { status: 'active',   label: 'Active',   dot: 'bg-emerald-500', text: 'text-emerald-700', bg: 'bg-emerald-50/60',
+    rule: 'Referred a case within the last 30 days.' },
+  { status: 'new',      label: 'New',      dot: 'bg-blue-500',    text: 'text-blue-700',    bg: 'bg-blue-50/60',
+    rule: 'Recently added colleague; no referral recorded yet.' },
+  { status: 'drifting', label: 'Drifting', dot: 'bg-amber-500',   text: 'text-amber-700',  bg: 'bg-amber-50/60',
+    rule: 'Last referral was 31–90 days ago. Relationship at risk of lapsing.' },
+  { status: 'silent',   label: 'Silent',   dot: 'bg-red-500',     text: 'text-red-600',    bg: 'bg-red-50/60',
+    rule: 'No referral in 90+ days despite a prior referral history. High re-engagement priority.' },
+]
+
 type Referrer = {
   id: string
   name: string
@@ -62,9 +74,11 @@ export default function NetworkClient({
   initialQuery: string
 }) {
   const router = useRouter()
-  const [filter, setFilter]   = useState<Filter>(initialFilter)
-  const [query, setQuery]     = useState(initialQuery)
-  const [sort, setSort]       = useState<'status' | 'name' | 'last_referral' | 'volume'>('status')
+  const [filter, setFilter]       = useState<Filter>(initialFilter)
+  const [query, setQuery]         = useState(initialQuery)
+  const [sort, setSort]           = useState<'status' | 'name' | 'last_referral' | 'volume'>('status')
+  const [showCriteria, setShowCriteria] = useState(false)
+  const [showScoreInfo, setShowScoreInfo] = useState(false)
 
   // ── Computed counts ──────────────────────────────
   const counts = useMemo(() => ({
@@ -156,7 +170,18 @@ export default function NetworkClient({
         <div className="card-clinical">
           <div className="flex items-start justify-between mb-4">
             <div>
-              <div className="data-label mb-0.5">Network health</div>
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <span className="data-label">Network health score</span>
+                <button
+                  onClick={() => setShowScoreInfo(v => !v)}
+                  className="w-4 h-4 rounded-full bg-navy-800/10 text-navy-800/40
+                             hover:bg-navy-800/15 hover:text-navy-800/70 transition-colors
+                             flex items-center justify-center text-xs font-bold leading-none"
+                  title="How is this calculated?"
+                >
+                  i
+                </button>
+              </div>
               <div className="flex items-baseline gap-2">
                 <span className={`font-display text-3xl font-medium ${healthColor}`}>
                   {healthScore}
@@ -165,11 +190,24 @@ export default function NetworkClient({
               </div>
             </div>
             <div className="text-right">
-              <div className="data-label mb-0.5">{specialist.city} average</div>
+              <div className="data-label mb-0.5">{specialist.city} platform avg.</div>
               <div className="font-display text-xl text-navy-800/50">{cityBenchmark}</div>
               <div className="text-xs text-navy-800/40">active referrers</div>
             </div>
           </div>
+
+          {/* Score methodology tooltip */}
+          {showScoreInfo && (
+            <div className="bg-navy-800/4 rounded-xl p-3 mb-4 text-xs text-navy-800/60 space-y-1.5">
+              <p className="font-medium text-navy-800/80">How the score is calculated</p>
+              <p>· <strong>Active referrer ratio</strong> (50 pts) — share of your network actively sending cases</p>
+              <p>· <strong>Engagement trend</strong> (30 pts) — whether referral frequency is growing or declining</p>
+              <p>· <strong>Network size vs benchmark</strong> (20 pts) — how your total active referrers compare to peers in {specialist.city}</p>
+              <p className="text-navy-800/40 pt-1 border-t border-navy-800/8">
+                Benchmark figures are derived from anonymised ClinCollab platform data across specialists in {specialist.city}.
+              </p>
+            </div>
+          )}
 
           {/* Health bar */}
           <div className="h-1.5 bg-navy-800/8 rounded-full overflow-hidden mb-4">
@@ -208,7 +246,17 @@ export default function NetworkClient({
         {/* ── At-risk alert ────────────────────── */}
         {atRisk.length > 0 && (
           <div className="bg-amber-50 border border-amber-200/70 rounded-2xl p-4">
-            <div className="data-label text-amber-700/70 mb-2">Attention — high-value relationships at risk</div>
+            <div className="flex items-start justify-between mb-2">
+              <div>
+                <div className="data-label text-amber-700/70">Silent — high-value relationships at risk</div>
+                <div className="text-xs text-amber-700/50 mt-0.5">
+                  These were active referral sources now silent for 90+ days
+                </div>
+              </div>
+              <span className="text-2xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-medium flex-shrink-0 ml-2">
+                Silent
+              </span>
+            </div>
             {atRisk.map(r => (
               <button
                 key={r.id}
@@ -223,13 +271,13 @@ export default function NetworkClient({
                   )}
                 </div>
                 <span className="text-xs text-amber-700 font-medium flex-shrink-0">
-                  {r.total_referrals} cases · silent {r.days_since_last}d
+                  {r.total_referrals} cases · {r.days_since_last}d silent
                 </span>
               </button>
             ))}
             <p className="text-xs text-amber-700/70 mt-2 pt-2 border-t border-amber-200/50">
-              These colleagues were previously active referral sources. Structured re-engagement
-              typically restores referral flow within 3–4 weeks.
+              Structured re-engagement (WhatsApp check-in + case update) typically
+              restores referral flow within 3–4 weeks.
             </p>
           </div>
         )}
@@ -273,7 +321,38 @@ export default function NetworkClient({
               {f === 'all' ? `All (${counts.all})` : `${getStatusConfig(f).label} (${counts[f]})`}
             </button>
           ))}
+          <button
+            onClick={() => setShowCriteria(v => !v)}
+            className="px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap
+              transition-all border flex-shrink-0 bg-white text-navy-800/40
+              border-navy-800/15 hover:border-navy-800/30 flex items-center gap-1"
+          >
+            <span className="font-bold">i</span> How statuses work
+          </button>
         </div>
+
+        {/* ── Classification criteria panel ────── */}
+        {showCriteria && (
+          <div className="bg-white border border-navy-800/10 rounded-2xl p-4 space-y-3">
+            <div className="data-label mb-1">Status classification criteria</div>
+            <p className="text-xs text-navy-800/50 mb-3">
+              Each colleague is automatically classified based on their referral recency.
+              Status updates daily.
+            </p>
+            {CRITERIA_INFO.map(c => (
+              <div key={c.status} className={`flex items-start gap-3 rounded-xl px-3 py-2.5 ${c.bg}`}>
+                <div className={`w-2 h-2 rounded-full ${c.dot} mt-1 flex-shrink-0`} />
+                <div>
+                  <span className={`text-xs font-semibold ${c.text}`}>{c.label}</span>
+                  <p className="text-xs text-navy-800/60 mt-0.5">{c.rule}</p>
+                </div>
+              </div>
+            ))}
+            <p className="text-xs text-navy-800/35 pt-1">
+              Thresholds: Active ≤30 days · Drifting 31–90 days · Silent &gt;90 days
+            </p>
+          </div>
+        )}
 
         {/* ── Referrer list ────────────────────── */}
         {displayed.length > 0 ? (
