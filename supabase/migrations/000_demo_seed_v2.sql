@@ -311,25 +311,78 @@ FROM
 WHERE EXTRACT(DOW FROM CURRENT_DATE + (d || ' days')::INTERVAL) IN (1, 3, 5)  -- Mon, Wed, Fri
 ON CONFLICT DO NOTHING;
 
--- 3 booked appointments
-WITH
-  spec AS (SELECT id FROM specialists ORDER BY created_at LIMIT 1),
-  slot1 AS (SELECT id FROM appointment_slots WHERE slot_date = CURRENT_DATE + 1 AND slot_time = '09:00' LIMIT 1),
-  slot2 AS (SELECT id FROM appointment_slots WHERE slot_date = CURRENT_DATE + 1 AND slot_time = '09:20' LIMIT 1),
-  slot3 AS (SELECT id FROM appointment_slots WHERE slot_date = CURRENT_DATE + 3 AND slot_time = '10:00' LIMIT 1)
-INSERT INTO appointments
-  (specialist_id, slot_id, patient_name, patient_mobile, reason, status, channel, booked_at)
-VALUES
-  ((SELECT id FROM spec), (SELECT id FROM slot1),
-   'Rajan Kumar', '9876001001', 'Chest pain evaluation — follow up to referral CC-202403-0047',
-   'confirmed', 'whatsapp', NOW() - INTERVAL '2 hours'),
-  ((SELECT id FROM spec), (SELECT id FROM slot2),
-   'Meenakshi Iyer', '9876002002', 'Coronary angiography pre-op discussion',
-   'confirmed', 'whatsapp', NOW() - INTERVAL '4 hours'),
-  ((SELECT id FROM spec), (SELECT id FROM slot3),
-   'Vijay Mehrotra', '9876007007', 'Second opinion on stable angina — PCI vs medical therapy',
-   'confirmed', 'web_widget', NOW() - INTERVAL '6 hours')
-ON CONFLICT DO NOTHING;
+-- 3 booked appointments — find real available slots dynamically
+-- (avoids hardcoded date offsets that break on weekends / non-clinic days)
+DO $$
+DECLARE
+  v_spec_id  UUID;
+  v_slot1_id UUID;
+  v_slot2_id UUID;
+  v_slot3_id UUID;
+BEGIN
+  SELECT id INTO v_spec_id FROM specialists ORDER BY created_at LIMIT 1;
+
+  -- Pick first three future slots that actually exist for this specialist
+  SELECT id INTO v_slot1_id
+  FROM appointment_slots
+  WHERE specialist_id = v_spec_id
+    AND slot_date >= CURRENT_DATE
+    AND booked_count < max_capacity
+    AND is_blocked = FALSE
+  ORDER BY slot_date, slot_time
+  LIMIT 1;
+
+  SELECT id INTO v_slot2_id
+  FROM appointment_slots
+  WHERE specialist_id = v_spec_id
+    AND slot_date >= CURRENT_DATE
+    AND booked_count < max_capacity
+    AND is_blocked = FALSE
+    AND id <> COALESCE(v_slot1_id, uuid_generate_v4())
+  ORDER BY slot_date, slot_time
+  LIMIT 1;
+
+  SELECT id INTO v_slot3_id
+  FROM appointment_slots
+  WHERE specialist_id = v_spec_id
+    AND slot_date >= CURRENT_DATE
+    AND booked_count < max_capacity
+    AND is_blocked = FALSE
+    AND id NOT IN (COALESCE(v_slot1_id, uuid_generate_v4()), COALESCE(v_slot2_id, uuid_generate_v4()))
+  ORDER BY slot_date, slot_time
+  LIMIT 1;
+
+  -- Only insert if we found valid slots
+  IF v_slot1_id IS NOT NULL THEN
+    INSERT INTO appointments
+      (specialist_id, slot_id, patient_name, patient_mobile, reason, status, channel, booked_at)
+    VALUES
+      (v_spec_id, v_slot1_id,
+       'Rajan Kumar', '9876001001', 'Chest pain evaluation — follow up to referral CC-202403-0047',
+       'confirmed', 'whatsapp', NOW() - INTERVAL '2 hours')
+    ON CONFLICT DO NOTHING;
+  END IF;
+
+  IF v_slot2_id IS NOT NULL THEN
+    INSERT INTO appointments
+      (specialist_id, slot_id, patient_name, patient_mobile, reason, status, channel, booked_at)
+    VALUES
+      (v_spec_id, v_slot2_id,
+       'Meenakshi Iyer', '9876002002', 'Coronary angiography pre-op discussion',
+       'confirmed', 'whatsapp', NOW() - INTERVAL '4 hours')
+    ON CONFLICT DO NOTHING;
+  END IF;
+
+  IF v_slot3_id IS NOT NULL THEN
+    INSERT INTO appointments
+      (specialist_id, slot_id, patient_name, patient_mobile, reason, status, channel, booked_at)
+    VALUES
+      (v_spec_id, v_slot3_id,
+       'Vijay Mehrotra', '9876007007', 'Second opinion on stable angina — PCI vs medical therapy',
+       'confirmed', 'web_widget', NOW() - INTERVAL '6 hours')
+    ON CONFLICT DO NOTHING;
+  END IF;
+END $$;
 
 UPDATE appointment_slots SET booked_count = 1
 WHERE id IN (
