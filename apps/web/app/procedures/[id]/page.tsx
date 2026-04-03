@@ -1,17 +1,19 @@
 import { redirect, notFound } from 'next/navigation'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server'
 import PlanDetailClient from './plan-detail-client'
 
 export default async function PlanDetailPage({ params }: { params: { id: string } }) {
-  const supabase = await createServerSupabaseClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const authClient = await createServerSupabaseClient()
+  const { data: { user } } = await authClient.auth.getUser()
   if (!user) redirect('/auth/login')
 
-  const { data: specialist } = await supabase
+  const db = createServiceRoleClient()
+
+  const { data: specialist } = await db
     .from('specialists').select('id, name, specialty').eq('google_id', user.id).single()
   if (!specialist) redirect('/onboarding')
 
-  const { data: plan } = await supabase
+  const { data: plan } = await db
     .from('procedure_plans')
     .select(`
       *,

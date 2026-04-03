@@ -1,13 +1,15 @@
 import { redirect, notFound } from 'next/navigation'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server'
 import SynthesisBriefClient from './synthesis-brief-client'
 
 export default async function SynthesisBriefPage({ params }: { params: { id: string } }) {
-  const supabase = await createServerSupabaseClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const authClient = await createServerSupabaseClient()
+  const { data: { user } } = await authClient.auth.getUser()
   if (!user) redirect('/auth/login')
 
-  const { data: specialist } = await supabase
+  const db = createServiceRoleClient()
+
+  const { data: specialist } = await db
     .from('specialists')
     .select('id, name, specialty')
     .eq('google_id', user.id)
@@ -15,7 +17,7 @@ export default async function SynthesisBriefPage({ params }: { params: { id: str
 
   if (!specialist) redirect('/onboarding')
 
-  const { data: job } = await supabase
+  const { data: job } = await db
     .from('synthesis_jobs')
     .select(`
       id, status, patient_name, trigger, clinical_brief,

@@ -1,5 +1,5 @@
 import { redirect, notFound } from 'next/navigation'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server'
 import CaseDetailClient from './case-detail-client'
 import { getSignedUrls } from '@/lib/storage/documents'
 
@@ -8,11 +8,13 @@ export default async function CaseDetailPage({
 }: {
   params: { id: string }
 }) {
-  const supabase = await createServerSupabaseClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const authClient = await createServerSupabaseClient()
+  const { data: { user } } = await authClient.auth.getUser()
   if (!user) redirect('/auth/login')
 
-  const { data: specialist } = await supabase
+  const db = createServiceRoleClient()
+
+  const { data: specialist } = await db
     .from('specialists')
     .select('id, name, specialty, city, role')
     .eq('google_id', user.id)
@@ -20,8 +22,8 @@ export default async function CaseDetailPage({
 
   if (!specialist) redirect('/onboarding')
 
-  // Fetch case — RLS ensures specialist sees only their cases
-  const { data: referralCase } = await supabase
+  // Fetch case
+  const { data: referralCase } = await db
     .from('referral_cases')
     .select(`
       *,
@@ -35,14 +37,14 @@ export default async function CaseDetailPage({
   if (!referralCase) notFound()
 
   // Fetch clinical data
-  const { data: clinicalData } = await supabase
+  const { data: clinicalData } = await db
     .from('referral_clinical_data')
     .select('*')
     .eq('case_id', params.id)
     .single()
 
   // Fetch documents
-  const { data: documents } = await supabase
+  const { data: documents } = await db
     .from('referral_documents')
     .select('*')
     .eq('case_id', params.id)
@@ -53,14 +55,14 @@ export default async function CaseDetailPage({
   const signedUrls = docPaths.length > 0 ? await getSignedUrls(docPaths) : {}
 
   // Fetch case messages
-  const { data: messages } = await supabase
+  const { data: messages } = await db
     .from('case_messages')
     .select('*')
     .eq('case_id', params.id)
     .order('created_at', { ascending: true })
 
   // Fetch case updates
-  const { data: updates } = await supabase
+  const { data: updates } = await db
     .from('case_updates')
     .select('*')
     .eq('case_id', params.id)

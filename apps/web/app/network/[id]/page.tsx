@@ -1,5 +1,5 @@
 import { redirect, notFound } from 'next/navigation'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server'
 import ReferrerDetailClient from './referrer-detail-client'
 
 export default async function ReferrerDetailPage({
@@ -7,11 +7,13 @@ export default async function ReferrerDetailPage({
 }: {
   params: { id: string }
 }) {
-  const supabase = await createServerSupabaseClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const authClient = await createServerSupabaseClient()
+  const { data: { user } } = await authClient.auth.getUser()
   if (!user) redirect('/auth/login')
 
-  const { data: specialist } = await supabase
+  const db = createServiceRoleClient()
+
+  const { data: specialist } = await db
     .from('specialists')
     .select('id, name, specialty, city, role')
     .eq('google_id', user.id)
@@ -19,8 +21,8 @@ export default async function ReferrerDetailPage({
 
   if (!specialist) redirect('/onboarding')
 
-  // Fetch referrer — RLS ensures this specialist's data only
-  const { data: referrer } = await supabase
+  // Fetch referrer
+  const { data: referrer } = await db
     .from('referrers')
     .select('*')
     .eq('id', params.id)
@@ -31,7 +33,7 @@ export default async function ReferrerDetailPage({
   if (!referrer) notFound()
 
   // Fetch referral logs
-  const { data: logs } = await supabase
+  const { data: logs } = await db
     .from('referral_logs')
     .select('*')
     .eq('referrer_id', params.id)
@@ -40,7 +42,7 @@ export default async function ReferrerDetailPage({
     .limit(50)
 
   // Fetch notes
-  const { data: notes } = await supabase
+  const { data: notes } = await db
     .from('referrer_notes')
     .select('*')
     .eq('referrer_id', params.id)

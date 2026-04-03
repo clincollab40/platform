@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server'
 import ProtocolBuilderClient from './protocol-builder-client'
 
 export default async function ProtocolBuilderPage({
@@ -7,11 +7,13 @@ export default async function ProtocolBuilderPage({
 }: {
   searchParams: { protocol?: string }
 }) {
-  const supabase = await createServerSupabaseClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const authClient = await createServerSupabaseClient()
+  const { data: { user } } = await authClient.auth.getUser()
   if (!user) redirect('/auth/login')
 
-  const { data: specialist } = await supabase
+  const db = createServiceRoleClient()
+
+  const { data: specialist } = await db
     .from('specialists')
     .select('id, name, specialty, city, role')
     .eq('google_id', user.id)
@@ -20,7 +22,7 @@ export default async function ProtocolBuilderPage({
   if (!specialist) redirect('/onboarding')
 
   // Fetch all protocols for this specialist
-  const { data: protocols } = await supabase
+  const { data: protocols } = await db
     .from('triage_protocols')
     .select('id, name, protocol_type, is_active, is_default, version, created_at')
     .eq('specialist_id', specialist.id)
@@ -31,7 +33,7 @@ export default async function ProtocolBuilderPage({
   let questions: any[] = []
 
   if (searchParams.protocol) {
-    const { data: p } = await supabase
+    const { data: p } = await db
       .from('triage_protocols')
       .select('*')
       .eq('id', searchParams.protocol)
@@ -40,7 +42,7 @@ export default async function ProtocolBuilderPage({
 
     if (p) {
       selectedProtocol = p
-      const { data: qs } = await supabase
+      const { data: qs } = await db
         .from('triage_questions')
         .select('*')
         .eq('protocol_id', p.id)
@@ -50,7 +52,7 @@ export default async function ProtocolBuilderPage({
   }
 
   // Fetch specialty templates
-  const { data: templates } = await supabase
+  const { data: templates } = await db
     .from('triage_protocol_templates')
     .select('id, specialty, name, description, protocol_type')
     .order('specialty')

@@ -1,5 +1,5 @@
 import { redirect, notFound } from 'next/navigation'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server'
 import SessionDetailClient from './session-detail-client'
 import { formatAnswerForDisplay } from '@/lib/ai/triage-engine'
 
@@ -8,11 +8,13 @@ export default async function SessionDetailPage({
 }: {
   params: { id: string }
 }) {
-  const supabase = await createServerSupabaseClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const authClient = await createServerSupabaseClient()
+  const { data: { user } } = await authClient.auth.getUser()
   if (!user) redirect('/auth/login')
 
-  const { data: specialist } = await supabase
+  const db = createServiceRoleClient()
+
+  const { data: specialist } = await db
     .from('specialists')
     .select('id, name, specialty')
     .eq('google_id', user.id)
@@ -20,8 +22,8 @@ export default async function SessionDetailPage({
 
   if (!specialist) redirect('/onboarding')
 
-  // Fetch session — RLS enforces specialist isolation
-  const { data: session } = await supabase
+  // Fetch session
+  const { data: session } = await db
     .from('triage_sessions')
     .select(`
       *,
@@ -34,7 +36,7 @@ export default async function SessionDetailPage({
   if (!session) notFound()
 
   // Fetch answers with question data
-  const { data: answers } = await supabase
+  const { data: answers } = await db
     .from('triage_answers')
     .select(`
       id, answer_value, answer_display, is_red_flag,

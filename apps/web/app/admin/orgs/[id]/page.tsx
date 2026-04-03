@@ -1,14 +1,16 @@
 import { redirect, notFound } from 'next/navigation'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server'
 import OrgDetailClient from './org-detail-client'
 import { getOrgAction, getUsageAnalyticsAction, getAuditLogAction } from '@/app/actions/admin'
 
 export default async function OrgDetailPage({ params }: { params: { id: string } }) {
-  const supabase = await createServerSupabaseClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const authClient = await createServerSupabaseClient()
+  const { data: { user } } = await authClient.auth.getUser()
   if (!user) redirect('/auth/login')
 
-  const { data: adminSpec } = await supabase
+  const db = createServiceRoleClient()
+
+  const { data: adminSpec } = await db
     .from('specialists').select('id, name, role').eq('google_id', user.id).single()
   if (!adminSpec || adminSpec.role !== 'admin') redirect('/dashboard')
 
@@ -20,12 +22,12 @@ export default async function OrgDetailPage({ params }: { params: { id: string }
 
   if (!orgResult.ok) notFound()
 
-  const { data: flagRegistry } = await supabase
+  const { data: flagRegistry } = await db
     .from('feature_flag_registry')
     .select('flag_key, module_key, display_name, description, default_value, risk_level, requires_admin')
     .order('module_key')
 
-  const { data: allSpecialists } = await supabase
+  const { data: allSpecialists } = await db
     .from('specialists').select('id, name, specialty, email, status').order('name').limit(100)
 
   return (
