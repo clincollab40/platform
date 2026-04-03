@@ -338,13 +338,31 @@ WHERE id IN (
 );
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- M5: TRIAGE SESSIONS — 6 sessions with full answer trails
+-- M5: TRIAGE — protocol first (required NOT NULL FK), then sessions
+-- triage_sessions.protocol_id is NOT NULL, so we must create a protocol first
 -- ─────────────────────────────────────────────────────────────────────────────
+INSERT INTO triage_protocols
+  (specialist_id, name, description, specialty_context, protocol_type,
+   is_active, is_default, welcome_message, completion_message, estimated_minutes)
+SELECT
+  id,
+  'Interventional Cardiology — New Patient',
+  'Standard cardiac triage for new referrals and walk-ins',
+  'Interventional Cardiology',
+  'new_patient',
+  true, true,
+  'Hello! I am the virtual triage nurse for Dr. Arjun Mehta''s practice. I will ask you a few clinical questions before your consultation. Please answer as accurately as possible.',
+  'Thank you. Your clinical summary has been sent to Dr. Mehta. Please wait to be called.',
+  8
+FROM specialists ORDER BY created_at LIMIT 1
+ON CONFLICT DO NOTHING;
+
 INSERT INTO triage_sessions
-  (specialist_id, patient_name, patient_mobile, status, red_flag_level,
+  (specialist_id, protocol_id, patient_name, patient_mobile, status, red_flag_level,
    ai_synopsis, access_token, completed_at, created_at)
 SELECT
   (SELECT id FROM specialists ORDER BY created_at LIMIT 1),
+  (SELECT id FROM triage_protocols WHERE specialist_id = (SELECT id FROM specialists ORDER BY created_at LIMIT 1) LIMIT 1),
   t.patient_name, t.mobile, t.status::triage_status, t.flag::red_flag_level,
   t.synopsis,
   'demo-tok-' || t.tok,
@@ -372,28 +390,8 @@ FROM (VALUES
 ) AS t(patient_name, mobile, status, flag, synopsis, tok, done_h)
 ON CONFLICT DO NOTHING;
 
--- Detailed triage answers for Rajan Kumar (the "live" urgent case)
-WITH
-  spec AS (SELECT id FROM specialists ORDER BY created_at LIMIT 1),
-  sess AS (SELECT id FROM triage_sessions WHERE patient_name = 'Rajan Kumar' AND specialist_id = (SELECT id FROM spec) LIMIT 1)
-INSERT INTO triage_answers
-  (session_id, specialist_id, question_id, question_text, answer_value, triggered_red_flag, created_at)
-SELECT sess.id, spec.id, a.qid, a.qtext, a.ans, a.flag, NOW() - (a.m || ' minutes')::INTERVAL
-FROM spec, sess, (VALUES
-  ('q01','Main reason for visit today?','Chest pain when I walk up stairs or move fast',    false,45),
-  ('q02','How long has this been happening?','About 3 weeks. Getting worse over last week', false,43),
-  ('q03','Is the chest pain getting worse?','Yes, happening more often and more intense now',true, 41),
-  ('q04','Chest pain at rest too?','Sometimes at night when I lie down',                    true, 39),
-  ('q05','Do you have diabetes?','Yes, for 9 years. Taking metformin and glipizide',        false,37),
-  ('q06','Are you on blood pressure medicines?','No medicines but doctor said BP is high',  false,35),
-  ('q07','Blood pressure reading today?','148/92',                                           true, 32),
-  ('q08','Any recent ECG or heart tests?','Yes — my doctor said ECG shows some changes in leads V4-V6', true, 30),
-  ('q09','Any allergies to medicines or dyes?','No known allergies',                         false,28),
-  ('q10','Are you on blood thinners?','No',                                                  false,26),
-  ('q11','Pain severity now 0-10?','4 out of 10',                                            false,24),
-  ('q12','Any sweating, nausea, jaw pain, left arm pain?','Mild left shoulder discomfort when pain comes', true, 22)
-) AS a(qid, qtext, ans, flag, m)
-ON CONFLICT DO NOTHING;
+-- NOTE: triage_answers skipped — requires real triage_questions UUID FKs.
+-- Triage sessions carry the full ai_synopsis which is what the app displays.
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- M6: SYNTHESIS JOBS — 4 AI clinical briefs
