@@ -114,9 +114,44 @@ CROSS JOIN (VALUES
 WHERE s.id = (SELECT id FROM specialists ORDER BY created_at LIMIT 1)
 ON CONFLICT DO NOTHING;
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- M2 (cont): REFERRERS table — also needed so M3 referral_cases can link via FK
+-- referrer_status ENUM: 'new', 'active', 'drifting', 'silent', 'inactive'
+-- ─────────────────────────────────────────────────────────────────────────────
+INSERT INTO referrers
+  (specialist_id, name, clinic_name, clinic_area, city, mobile, whatsapp,
+   specialty, status, total_referrals, last_referral_at, days_since_last, created_at)
+SELECT
+  s.id,
+  r.name, r.clinic, r.area, 'Mumbai', r.mobile, r.mobile,
+  'Internal Medicine',
+  r.status::referrer_status,
+  r.refs,
+  CASE WHEN r.days IS NOT NULL THEN NOW() - (r.days || ' days')::INTERVAL ELSE NULL END,
+  r.days,
+  NOW() - (r.months || ' months')::INTERVAL
+FROM specialists s
+CROSS JOIN (VALUES
+  ('Dr. Priya Sharma',    'Sharma Clinic',           '9820111001', 'Bandra West',    'active',   28, 2,   14),
+  ('Dr. Rajesh Gupta',    'Gupta Diabetes Centre',   '9819222002', 'Andheri East',   'active',   34, 5,   28),
+  ('Dr. Sunita Patil',    'Patil Medical',           '9821333003', 'Dadar',          'active',   21, 8,   22),
+  ('Dr. Vikram Nair',     'Nair Healthcare',         '9822444004', 'Borivali West',  'active',   19, 12,  18),
+  ('Dr. Anita Desai',     'Desai Wellness Clinic',   '9823555005', 'Juhu',           'active',   15, 18,  12),
+  ('Dr. Sanjay Kulkarni', 'Kulkarni Clinic',         '9824666006', 'Thane West',     'drifting', 12, 45,  36),
+  ('Dr. Meera Iyer',      'Iyer Family Medicine',    '9825777007', 'Powai',          'drifting',  8, 62,  30),
+  ('Dr. Arun Verma',      'Verma Medical Centre',    '9826888008', 'Goregaon East',  'drifting',  6, 78,  24),
+  ('Dr. Kavitha Reddy',   'Reddy Clinic',            '9827999009', 'Chembur',        'silent',   18, 112, 42),
+  ('Dr. Mohan Joshi',     'Joshi Medical Hall',      '9828000010', 'Malad West',     'silent',   23, 145, 48),
+  ('Dr. Deepika Singh',   'Singh Polyclinic',        '9829111011', 'Santacruz East', 'new',       0, NULL, 6),
+  ('Dr. Harish Patel',    'Patel Nursing Home',      '9810222012', 'Ghatkopar West', 'new',       0, NULL, 3)
+) AS r(name, clinic, mobile, area, status, refs, days, months)
+WHERE s.id = (SELECT id FROM specialists ORDER BY created_at LIMIT 1)
+ON CONFLICT DO NOTHING;
+
 -- Referral token for the public referral form
-INSERT INTO referral_tokens (specialist_id, token, label, is_active)
-SELECT id, 'apollo-mehta-ic-mumbai-2024', 'Apollo Bandra — Main Referral Link', true
+-- actual columns: specialist_id, token, token_type, expires_at (no label, no is_active)
+INSERT INTO referral_tokens (specialist_id, token, token_type, expires_at)
+SELECT id, 'apollo-mehta-ic-mumbai-2024', 'referral_form', NOW() + INTERVAL '365 days'
 FROM specialists ORDER BY created_at LIMIT 1
 ON CONFLICT DO NOTHING;
 
