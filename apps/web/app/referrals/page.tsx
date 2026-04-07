@@ -51,25 +51,31 @@ export default async function ReferralsPage({
   const conversionRate = total > 0 ? Math.round((accepted / total) * 100) : 0
   const convScore      = Math.min(100, conversionRate + (pending > 0 ? 10 : 0))
 
+  // urgent = cases that are urgent/emergency AND still awaiting response
+  const urgentPending = allCases.filter(c =>
+    (c.urgency === 'urgent' || c.urgency === 'emergency') &&
+    ['submitted', 'queried', 'info_provided'].includes(c.status)
+  ).length
+
   const insightData: InsightData = {
     moduleTitle: 'Referral Pipeline',
     score: convScore,
-    scoreLabel: 'Conversion Rate',
-    scoreColor: conversionRate >= 70 ? 'green' : conversionRate >= 40 ? 'amber' : 'red',
+    scoreLabel: 'Acceptance Score',
+    scoreColor: conversionRate >= 60 ? 'green' : conversionRate >= 35 ? 'amber' : 'red',
     insights: [
       pending > 0
-        ? { text: `${pending} case${pending > 1 ? 's' : ''} awaiting your review. Respond within 2 hours for best outcomes.`, severity: 'warning' as const }
-        : { text: 'No pending referrals. Your pipeline is clear.', severity: 'positive' as const },
-      urgent > 0
-        ? { text: `${urgent} urgent/emergency case${urgent > 1 ? 's' : ''} in the queue — prioritise immediately.`, severity: 'critical' as const }
-        : { text: 'No urgent cases flagged right now.', severity: 'info' as const },
+        ? { text: `${pending} case${pending > 1 ? 's' : ''} awaiting your response. Replying within 2 hours improves referrer retention significantly.`, severity: 'warning' as const }
+        : { text: 'All referrals reviewed. Your pipeline is clear.', severity: 'positive' as const },
+      urgentPending > 0
+        ? { text: `${urgentPending} urgent/emergency case${urgentPending > 1 ? 's are' : ' is'} waiting — see the Priority panel on the Referrals screen to review each case.`, severity: 'critical' as const }
+        : { text: 'No urgent or emergency cases currently awaiting response.', severity: 'info' as const },
       conversionRate > 0
-        ? { text: `${conversionRate}% of referrals accepted. Top specialists in your city hit 78%.`, severity: conversionRate >= 70 ? 'positive' as const : 'warning' as const }
-        : { text: 'Accept your first referral to start tracking conversion metrics.', severity: 'info' as const },
+        ? { text: `Your acceptance rate: ${conversionRate}%. Platform data: specialists sustaining 60–75% build stronger long-term referral networks.`, severity: conversionRate >= 60 ? 'positive' as const : 'warning' as const }
+        : { text: 'Accept your first referral to start tracking your acceptance rate.', severity: 'info' as const },
     ],
-    benchmark: `Specialists who respond to referrals within 2 hours see 2.4× more repeat referrals.`,
-    cta:          { label: 'View pending cases', href: '/referrals?status=submitted' },
-    secondaryCta: { label: 'Track case outcomes', href: '/referrals?status=completed' },
+    benchmark: `Platform data: specialists who respond within 2 hours receive 2.4× more repeat referrals from the same colleague.`,
+    cta:          { label: 'Cases needing response', href: '/referrals?status=action_needed' },
+    secondaryCta: { label: 'View completed cases',   href: '/referrals?status=completed' },
   }
 
   return (
