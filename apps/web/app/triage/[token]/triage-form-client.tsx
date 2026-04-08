@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useTransition } from 'react'
 import Image from 'next/image'
+// ⚠️  Import ONLY from triage-logic (client-safe) — NOT from triage-engine (Node.js only)
 import {
   resolveVisibleQuestions,
   formatAnswerForDisplay,
@@ -9,12 +10,10 @@ import {
   computeCompletionPct,
   type TriageQuestion,
   type AnswerMap,
-} from '@/lib/ai/triage-engine'
+  type Lang,
+  LANG_LABELS,
+} from '@/lib/ai/triage-logic'
 import { submitTriageAnswerAction, completeTriage } from '@/app/actions/triage'
-
-type Lang = 'en' | 'hi' | 'te'
-
-const LANG_LABELS: Record<Lang, string> = { en: 'English', hi: 'हिंदी', te: 'తెలుగు' }
 
 interface Props {
   token: string

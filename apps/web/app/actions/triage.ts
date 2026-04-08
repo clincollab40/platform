@@ -4,15 +4,16 @@ import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supab
 import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
+// triage-engine is server-only (imports Groq SDK); all pure logic is in triage-logic
 import {
   evaluateRedFlags,
   computeSessionRedFlagLevel,
   buildRedFlagSummary,
-  generateClinicalSynopsis,
   resolveVisibleQuestions,
   type TriageQuestion,
   type AnswerMap,
-} from '@/lib/ai/triage-engine'
+} from '@/lib/ai/triage-logic'
+import { generateClinicalSynopsis } from '@/lib/ai/triage-engine'
 import { z } from 'zod'
 
 // ── Helpers ────────────────────────────────────────
@@ -426,21 +427,78 @@ export async function completeTriage(token: string) {
     })
     .eq('id', session.id)
 
-  // Notify specialist
-  if (specialist?.whatsapp_number) {
-    const urgencyLabel = sessionLevel === 'urgent'
-      ? '🔴 URGENT — '
-      : sessionLevel === 'needs_review'
-      ? '🟡 Review needed — '
+  // Fetch POC settings from protocol
+  const { data: protocol } = await sc
+    .from('triage_protocols')
+    .select('poc_mobile, poc_name, poc_alert_on, review_required')
+    .eq('id', session.protocol_id)
+    .single()
+
+  const sessionUrl     = `${process.env.NEXT_PUBLIC_APP_URL}/triage/sessions/${session.id}`
+  const urgencyLabel   = sessionLevel === 'urgent' ? '🔴 URGENT — ' : sessionLevel === 'needs_review' ? '🟡 Review needed — ' : ''
+  const flagSection    = redFlagSummary ? `\nFlags raised:\n${redFlagSummary}\n` : ''
+  const synopsisSection = synopsis ? `\nAI summary: ${synopsis}\n` : ''
+
+  // Determine if POC should be alerted
+  const pocMobile   = protocol?.poc_mobile   || null
+  const pocAlertOn  = protocol?.poc_alert_on || 'urgent'
+  const shouldAlertPoc =
+    pocMobile && (
+      pocAlertOn === 'all' ||
+      (pocAlertOn.includes('urgent') && sessionLevel === 'urgent') ||
+      (pocAlertOn.includes('needs_review') && (sessionLevel === 'urgent' || sessionLevel === 'needs_review'))
+    )
+
+  // Alert POC
+  if (shouldAlertPoc && pocMobile) {
+    const reviewNote = protocol?.review_required
+      ? `\n⚠️ Review required before this patient is seen by the doctor.`
       : ''
+    const pocMsg = `ClinCollab — ${urgencyLabel}Triage complete\n\n${session.patient_name} has completed triage and needs your review.\n${flagSection}${synopsisSection}${reviewNote}\n\nReview now: ${sessionUrl}`
+    await sendWhatsAppDirect(pocMobile, pocMsg)
+  }
 
-    const msg = `ClinCollab — Triage complete\n\n${urgencyLabel}${session.patient_name} has completed pre-consultation triage.\n\n${redFlagSummary ? `Flags:\n${redFlagSummary}\n\n` : ''}View summary: ${process.env.NEXT_PUBLIC_APP_URL}/triage/sessions/${session.id}`
-
+  // Notify specialist (only if no POC review gate, or if urgent)
+  if (specialist?.whatsapp_number) {
+    const reviewGateNote = (protocol?.review_required && pocMobile)
+      ? `\n\nYour POC (${protocol?.poc_name || 'coordinator'}) has been notified for review.`
+      : ''
+    const msg = `ClinCollab — Triage complete\n\n${urgencyLabel}${session.patient_name} has completed pre-consultation triage.\n${flagSection}${synopsisSection}${reviewGateNote}\n\nView summary: ${sessionUrl}`
     await sendWhatsAppDirect(specialist.whatsapp_number, msg)
   }
 }
 
+// ── Update POC settings on a protocol ─────────────
+export async function updateProtocolPocAction(
+  protocolId: string,
+  poc: {
+    poc_name: string
+    poc_mobile: string
+    review_required: boolean
+    poc_alert_on: string
+  }
+) {
+  const { supabase, specialist } = await getAuthSpecialist()
+
+  const { error } = await supabase
+    .from('triage_protocols')
+    .update({
+      poc_name:        poc.poc_name.trim()   || null,
+      poc_mobile:      poc.poc_mobile.trim() || null,
+      review_required: poc.review_required,
+      poc_alert_on:    poc.poc_alert_on,
+    })
+    .eq('id', protocolId)
+    .eq('specialist_id', specialist.id)
+
+  if (error) return { error: 'Could not save POC settings.' }
+
+  revalidatePath(`/triage/builder?protocol=${protocolId}`)
+  return { success: true }
+}
+
 // ── Trigger urgent red flag alert ─────────────────
+// Sends to POC first (if configured), then specialist
 async function triggerRedFlagAlert(
   specialistId: string,
   sessionId: string,
@@ -448,23 +506,44 @@ async function triggerRedFlagAlert(
   message: string
 ) {
   const sc = serviceClient()
+
+  // Get session + protocol (to find POC)
+  const { data: session } = await sc
+    .from('triage_sessions')
+    .select('patient_name, protocol_id')
+    .eq('id', sessionId)
+    .single()
+
+  const patientName = session?.patient_name || 'Patient'
+  const sessionUrl  = `${process.env.NEXT_PUBLIC_APP_URL}/triage/sessions/${sessionId}`
+
+  // Get protocol POC settings
+  let pocMobile: string | null = null
+  if (session?.protocol_id) {
+    const { data: proto } = await sc
+      .from('triage_protocols')
+      .select('poc_mobile, poc_name')
+      .eq('id', session.protocol_id)
+      .single()
+    pocMobile = proto?.poc_mobile || null
+
+    if (pocMobile) {
+      const pocMsg = `ClinCollab — 🔴 URGENT TRIAGE FLAG\n\n${patientName} is completing triage right now. Urgent flag triggered:\n\n"${message}"\n\nPlease review and act before this patient is called in.\n\n${sessionUrl}`
+      await sendWhatsAppDirect(pocMobile, pocMsg)
+    }
+  }
+
+  // Also alert specialist directly for urgent flags
   const { data: spec } = await sc
     .from('specialists')
     .select('whatsapp_number, name')
     .eq('id', specialistId)
     .single()
 
-  if (!spec?.whatsapp_number) return
-
-  const { data: session } = await sc
-    .from('triage_sessions')
-    .select('patient_name')
-    .eq('id', sessionId)
-    .single()
-
-  const msg = `ClinCollab — 🔴 URGENT TRIAGE ALERT\n\nDr. ${spec.name},\n\n${session?.patient_name || 'Patient'} is currently completing triage. Urgent flag triggered:\n\n${message}\n\nReview now: ${process.env.NEXT_PUBLIC_APP_URL}/triage/sessions/${sessionId}`
-
-  await sendWhatsAppDirect(spec.whatsapp_number, msg)
+  if (spec?.whatsapp_number) {
+    const specMsg = `ClinCollab — 🔴 URGENT TRIAGE ALERT\n\nDr. ${spec.name},\n\n${patientName} triggered an urgent flag during triage:\n\n"${message}"\n\n${pocMobile ? `Your POC has been notified.` : 'No POC configured — please review directly.'}\n\n${sessionUrl}`
+    await sendWhatsAppDirect(spec.whatsapp_number, specMsg)
+  }
 }
 
 // ── WhatsApp sender ────────────────────────────────
