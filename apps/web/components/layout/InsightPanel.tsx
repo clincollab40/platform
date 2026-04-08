@@ -2,17 +2,19 @@
 
 import { useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { TrendingUp, TrendingDown, AlertCircle, CheckCircle2, Info, ArrowRight, Zap } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Info, ArrowRight, Zap, TrendingUp } from 'lucide-react'
 
+// ── Types ─────────────────────────────────────────────────────────────────────
 export type InsightItem = {
   text: string
   severity: 'positive' | 'warning' | 'critical' | 'info'
+  cta?: { label: string; href: string }   // per-insight action button
 }
 
 export type InsightData = {
   moduleTitle: string
-  score: number          // 0–100
-  scoreLabel: string     // e.g. "Network Health"
+  score: number
+  scoreLabel: string
   scoreColor: 'green' | 'amber' | 'red' | 'blue' | 'purple'
   insights: InsightItem[]
   benchmark?: string
@@ -20,33 +22,61 @@ export type InsightData = {
   secondaryCta?: { label: string; href: string }
 }
 
+// ── Score ring colour map ─────────────────────────────────────────────────────
 const COLOR_MAP = {
-  green:  { stroke: '#1E8449', bg: 'bg-forest-50',  text: 'text-forest-700',  ring: '#1E8449' },
-  amber:  { stroke: '#D97706', bg: 'bg-amber-50',   text: 'text-amber-700',   ring: '#D97706' },
-  red:    { stroke: '#DC2626', bg: 'bg-red-50',      text: 'text-red-600',     ring: '#DC2626' },
-  blue:   { stroke: '#1A5276', bg: 'bg-navy-50',     text: 'text-navy-800',    ring: '#1A5276' },
-  purple: { stroke: '#7C3AED', bg: 'bg-purple-50',   text: 'text-purple-700',  ring: '#7C3AED' },
+  green:  { stroke: '#16a34a', textColor: 'text-emerald-700', panelBg: 'bg-emerald-50'  },
+  amber:  { stroke: '#d97706', textColor: 'text-amber-700',   panelBg: 'bg-amber-50'    },
+  red:    { stroke: '#dc2626', textColor: 'text-red-600',     panelBg: 'bg-red-50'       },
+  blue:   { stroke: '#1A5276', textColor: 'text-navy-800',    panelBg: 'bg-navy-50'      },
+  purple: { stroke: '#7c3aed', textColor: 'text-purple-700',  panelBg: 'bg-purple-50'   },
 }
 
-const SEVERITY_ICON = {
-  positive: <CheckCircle2 size={14} className="text-forest-700 flex-shrink-0" />,
-  warning:  <AlertCircle  size={14} className="text-amber-500 flex-shrink-0" />,
-  critical: <AlertCircle  size={14} className="text-red-500 flex-shrink-0" />,
-  info:     <Info         size={14} className="text-navy-800/40 flex-shrink-0" />,
+// ── Per-severity card styles ───────────────────────────────────────────────────
+const SEVERITY_STYLE = {
+  critical: {
+    border: 'border-l-4 border-l-red-500',
+    bg: 'bg-red-50',
+    labelColor: 'text-red-600',
+    labelText: '🔴 CRITICAL',
+    textColor: 'text-red-900',
+    ctaClass: 'bg-red-600 hover:bg-red-700 text-white',
+    icon: <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />,
+  },
+  warning: {
+    border: 'border-l-4 border-l-amber-500',
+    bg: 'bg-amber-50',
+    labelColor: 'text-amber-700',
+    labelText: '⚠️ ACTION NEEDED',
+    textColor: 'text-amber-900',
+    ctaClass: 'bg-amber-500 hover:bg-amber-600 text-white',
+    icon: <AlertCircle size={14} className="text-amber-500 flex-shrink-0 mt-0.5" />,
+  },
+  positive: {
+    border: 'border-l-4 border-l-emerald-500',
+    bg: 'bg-emerald-50',
+    labelColor: 'text-emerald-700',
+    labelText: '✅ ON TRACK',
+    textColor: 'text-emerald-900',
+    ctaClass: 'bg-emerald-600 hover:bg-emerald-700 text-white',
+    icon: <CheckCircle2 size={14} className="text-emerald-600 flex-shrink-0 mt-0.5" />,
+  },
+  info: {
+    border: 'border-l-4 border-l-navy-800/30',
+    bg: 'bg-navy-800/5',
+    labelColor: 'text-navy-800/60',
+    labelText: '💡 INSIGHT',
+    textColor: 'text-navy-800/80',
+    ctaClass: 'bg-navy-800 hover:bg-navy-900 text-white',
+    icon: <Info size={14} className="text-navy-800/40 flex-shrink-0 mt-0.5" />,
+  },
 }
 
-const SEVERITY_TEXT = {
-  positive: 'text-forest-800',
-  warning:  'text-amber-900',
-  critical: 'text-red-800',
-  info:     'text-ink/70',
-}
-
+// ── Animated score ring ───────────────────────────────────────────────────────
 function ScoreRing({ score, color }: { score: number; color: keyof typeof COLOR_MAP }) {
-  const circleRef = useRef<SVGCircleElement>(null)
-  const radius    = 40
+  const circleRef     = useRef<SVGCircleElement>(null)
+  const radius        = 38
   const circumference = 2 * Math.PI * radius
-  const offset   = circumference - (score / 100) * circumference
+  const offset        = circumference - (score / 100) * circumference
 
   useEffect(() => {
     if (!circleRef.current) return
@@ -59,104 +89,133 @@ function ScoreRing({ score, color }: { score: number; color: keyof typeof COLOR_
     return () => cancelAnimationFrame(frame)
   }, [score, offset, circumference])
 
-  const { stroke } = COLOR_MAP[color]
-
   return (
     <div className="relative inline-flex items-center justify-center">
-      <svg width="96" height="96" viewBox="0 0 96 96" className="-rotate-90">
-        {/* Track */}
-        <circle cx="48" cy="48" r={radius}
-          fill="none" stroke="rgba(26,82,118,0.08)" strokeWidth="8" />
-        {/* Progress */}
-        <circle ref={circleRef} cx="48" cy="48" r={radius}
-          fill="none" stroke={stroke} strokeWidth="8"
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={circumference}
-        />
+      <svg width="88" height="88" viewBox="0 0 88 88" className="-rotate-90">
+        <circle cx="44" cy="44" r={radius} fill="none"
+          stroke="rgba(26,82,118,0.10)" strokeWidth="8" />
+        <circle ref={circleRef} cx="44" cy="44" r={radius}
+          fill="none" stroke={COLOR_MAP[color].stroke} strokeWidth="8"
+          strokeLinecap="round" strokeDasharray={circumference}
+          strokeDashoffset={circumference} />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="font-display text-2xl font-medium text-ink leading-none">{score}</span>
-        <span className="text-2xs text-ink/40 font-mono">/100</span>
+        <span className="font-display text-2xl font-bold text-navy-800 leading-none">{score}</span>
+        <span className="text-2xs text-navy-800/40">/100</span>
       </div>
     </div>
   )
 }
 
+// ── Panel ─────────────────────────────────────────────────────────────────────
 export default function InsightPanel({ data }: { data: InsightData }) {
   const router = useRouter()
   const colors = COLOR_MAP[data.scoreColor]
 
+  // Critical and warning always surface first
+  const severityOrder = { critical: 0, warning: 1, positive: 2, info: 3 }
+  const sorted = [...data.insights].sort(
+    (a, b) => (severityOrder[a.severity] ?? 4) - (severityOrder[b.severity] ?? 4)
+  )
+
   return (
-    <aside className="insight-panel">
-      {/* Header */}
-      <div className="px-5 pt-5 pb-4 border-b border-navy-800/6">
-        <div className="flex items-center gap-2 mb-1">
-          <Zap size={13} className="text-amber-500" />
-          <span className="text-2xs font-mono uppercase tracking-widest text-ink/40">AI Insight</span>
+    <aside className="insight-panel flex flex-col overflow-hidden">
+
+      {/* ── Branded header ─────────────────────────────────────────────── */}
+      <div className="px-4 pt-4 pb-3 flex-shrink-0"
+           style={{ background: 'linear-gradient(135deg, #0A1628 0%, #1A3A5C 100%)' }}>
+        <div className="flex items-center gap-2 mb-0.5">
+          <Zap size={13} className="text-amber-400 flex-shrink-0" />
+          <span className="text-xs font-bold text-white tracking-wide">
+            Actionable Insights
+          </span>
         </div>
-        <div className="text-sm font-semibold text-ink">{data.moduleTitle}</div>
+        <div className="text-2xs text-white/45 font-mono uppercase tracking-widest">
+          Powered by AI · {data.moduleTitle}
+        </div>
       </div>
 
-      {/* Score ring */}
-      <div className={`${colors.bg} px-5 py-5 flex flex-col items-center gap-2`}>
+      {/* ── Score band ─────────────────────────────────────────────────── */}
+      <div className={`${colors.panelBg} px-4 py-4 flex items-center gap-4 border-b border-navy-800/8 flex-shrink-0`}>
         <ScoreRing score={data.score} color={data.scoreColor} />
-        <div className={`text-xs font-medium ${colors.text} text-center`}>{data.scoreLabel}</div>
-      </div>
-
-      {/* Insights list */}
-      <div className="px-5 py-4 space-y-3 border-b border-navy-800/6">
-        {data.insights.map((item, i) => (
-          <div key={i} className="flex items-start gap-2.5">
-            <div className="mt-0.5">{SEVERITY_ICON[item.severity]}</div>
-            <p className={`text-xs leading-relaxed ${SEVERITY_TEXT[item.severity]}`}>{item.text}</p>
+        <div>
+          <div className={`font-display text-3xl font-bold ${colors.textColor} leading-none`}>
+            {data.score}
           </div>
-        ))}
-      </div>
-
-      {/* Benchmark */}
-      {data.benchmark && (
-        <div className="px-5 py-4 border-b border-navy-800/6">
-          <div className="flex items-center gap-1.5 mb-2">
-            <TrendingUp size={12} className="text-navy-800/40" />
-            <span className="text-2xs font-mono uppercase tracking-widest text-ink/40">Peer Benchmark</span>
+          <div className="text-sm font-semibold text-navy-800/70 mt-0.5 leading-tight">
+            {data.scoreLabel}
           </div>
-          <p className="text-xs text-ink/60 leading-relaxed">{data.benchmark}</p>
+          <div className="text-2xs text-navy-800/35 mt-0.5">out of 100</div>
         </div>
-      )}
-
-      {/* CTAs */}
-      {(data.cta || data.secondaryCta) && (
-        <div className="px-5 py-4 space-y-2">
-          {data.cta && (
-            <button
-              onClick={() => router.push(data.cta!.href)}
-              className="w-full flex items-center justify-center gap-2 bg-navy-800 text-white
-                         rounded-xl px-4 py-2.5 text-sm font-medium hover:bg-navy-900 transition-colors"
-            >
-              {data.cta.label}
-              <ArrowRight size={14} />
-            </button>
-          )}
-          {data.secondaryCta && (
-            <button
-              onClick={() => router.push(data.secondaryCta!.href)}
-              className="w-full flex items-center justify-center gap-2 border border-navy-800/15
-                         text-navy-800 rounded-xl px-4 py-2.5 text-sm font-medium
-                         hover:bg-navy-50 transition-colors"
-            >
-              {data.secondaryCta.label}
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Footer note */}
-      <div className="px-5 pb-5 mt-auto">
-        <p className="text-2xs text-ink/25 leading-relaxed font-mono">
-          Insights refreshed on each visit. Powered by ClinCollab AI.
-        </p>
       </div>
+
+      {/* ── Insight cards (scrollable) ──────────────────────────────────── */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="px-3 pt-3 space-y-2.5">
+          {sorted.map((item, i) => {
+            const s = SEVERITY_STYLE[item.severity]
+            return (
+              <div key={i} className={`rounded-xl ${s.bg} ${s.border} p-3`}>
+                <div className={`text-2xs font-bold uppercase tracking-wide ${s.labelColor} mb-1.5 flex items-center gap-1.5`}>
+                  {s.icon}
+                  {s.labelText}
+                </div>
+                <p className={`text-xs font-medium leading-relaxed ${s.textColor} mb-2`}>
+                  {item.text}
+                </p>
+                {item.cta && (
+                  <button
+                    onClick={() => router.push(item.cta!.href)}
+                    className={`w-full flex items-center justify-center gap-1.5 text-xs font-bold
+                                px-3 py-2 rounded-lg transition-colors active:scale-95 ${s.ctaClass}`}
+                  >
+                    {item.cta.label} <ArrowRight size={12} />
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Benchmark */}
+        {data.benchmark && (
+          <div className="mx-3 mt-2.5 mb-1 rounded-xl bg-navy-800/5 border border-navy-800/8 p-3">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <TrendingUp size={11} className="text-navy-800/40" />
+              <span className="text-2xs font-bold text-navy-800/40 uppercase tracking-widest">Platform Benchmark</span>
+            </div>
+            <p className="text-xs text-navy-800/55 leading-relaxed">{data.benchmark}</p>
+          </div>
+        )}
+
+        {/* Primary module-level CTAs */}
+        {(data.cta || data.secondaryCta) && (
+          <div className="px-3 pt-2.5 pb-4 space-y-2">
+            {data.cta && (
+              <button
+                onClick={() => router.push(data.cta!.href)}
+                className="w-full flex items-center justify-center gap-2 bg-navy-800
+                           text-white rounded-xl px-4 py-3 text-sm font-bold
+                           hover:bg-navy-900 active:scale-95 transition-all shadow-sm"
+              >
+                {data.cta.label} <ArrowRight size={14} />
+              </button>
+            )}
+            {data.secondaryCta && (
+              <button
+                onClick={() => router.push(data.secondaryCta!.href)}
+                className="w-full flex items-center justify-center gap-2
+                           border-2 border-navy-800/25 text-navy-800 rounded-xl
+                           px-4 py-2.5 text-sm font-semibold
+                           hover:bg-navy-50 hover:border-navy-800/50 transition-all"
+              >
+                {data.secondaryCta.label} <ArrowRight size={14} />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
     </aside>
   )
 }

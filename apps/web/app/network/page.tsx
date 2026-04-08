@@ -69,14 +69,14 @@ export default async function NetworkPage({
     scoreColor: healthScore >= 70 ? 'green' : healthScore >= 40 ? 'amber' : 'red',
     insights: [
       activeCount < benchmark
-        ? { text: `${activeCount} active referrers vs ${benchmark} city average. ${benchmark - activeCount} more needed to hit benchmark.`, severity: 'warning' as const }
-        : { text: `${activeCount} active referrers — above the ${specialist.city} average of ${benchmark}.`, severity: 'positive' as const },
+        ? { text: `${activeCount} active referrers vs ${benchmark} ${specialist.city} platform average. ${benchmark - activeCount} more needed to hit benchmark.`, severity: 'warning' as const, cta: { label: 'Add a new colleague', href: '/network/add' } }
+        : { text: `${activeCount} active referrers — above the ${specialist.city} platform average of ${benchmark}.`, severity: 'positive' as const },
       silentCount > 0
-        ? { text: `${silentCount} referrer${silentCount > 1 ? 's have' : ' has'} gone silent. Re-engage with a WhatsApp nudge.`, severity: 'critical' as const }
+        ? { text: `${silentCount} referrer${silentCount > 1 ? 's have' : ' has'} gone silent (90d+ no referral). Re-engage before the relationship is lost.`, severity: 'critical' as const, cta: { label: 'Re-engage silent referrers', href: '/network?filter=silent' } }
         : { text: 'No silent referrers. Your network is actively engaged.', severity: 'positive' as const },
       allReferrers.length === 0
-        ? { text: 'Start by adding your first referrer to build network intelligence.', severity: 'info' as const }
-        : { text: `${allReferrers.length} total referrers mapped in your network.`, severity: 'info' as const },
+        ? { text: 'Add your first referrer to activate network intelligence and tracking.', severity: 'info' as const, cta: { label: 'Add first colleague', href: '/network/add' } }
+        : { text: `${allReferrers.length} total referrers mapped. Keep nurturing key relationships.`, severity: 'info' as const, cta: { label: 'View full network', href: '/network' } },
     ],
     benchmark: `Platform data: specialists in ${specialist.city} with ${benchmark}+ active referrers achieve 34% more case volume on average.`,
     cta:           { label: 'Add new referrer',       href: '/network/add' },

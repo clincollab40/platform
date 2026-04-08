@@ -3,47 +3,41 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  TrendingUp, Users, FileText, Calendar, AlertTriangle,
+  Users, FileText, Calendar, AlertTriangle,
   ArrowRight, Plus, Activity, Clock, ChevronRight,
+  TrendingUp, Bell,
 } from 'lucide-react'
 
+// ── Types ─────────────────────────────────────────────────────────────────────
 type Specialist = {
-  id: string
-  name: string
-  specialty: string
-  city: string
-  status: string
-  role: string
-  last_active_at: string | null
-  created_at: string
-  specialist_profiles?: {
-    designation?: string
-    sub_specialty?: string
-    hospitals?: string[]
-    years_experience?: number
-    photo_url?: string
-    completeness_pct: number
-  } | null
+  id: string; name: string; specialty: string; city: string
+  status: string; role: string; last_active_at: string | null; created_at: string
+  specialist_profiles?: { completeness_pct: number; photo_url?: string } | null
 }
 
-type Peer = {
-  id: string
-  peer_name: string
-  peer_city: string
-  peer_specialty?: string | null
-  status: string
-  last_referral_at: string | null
-  days_since_last?: number | null
-  seeded_at: string
+type Referrer = {
+  id: string; name: string; specialty: string | null; status: string
+  total_referrals: number; last_referral_at: string | null; days_since_last: number | null
+  whatsapp: string | null; clinic_name: string | null; city: string
+}
+
+type Case = {
+  id: string; reference_no: string; patient_name: string; status: string
+  urgency: string; submitted_at: string
+  referring_doctors: { name: string | null; specialty: string | null } | null
 }
 
 type Props = {
   specialist: Specialist
-  peers: Peer[]
+  referrers: Referrer[]
+  cases: Case[]
+  healthScore: number
+  cityBenchmark: number
   isNewlyOnboarded: boolean
   userPhoto?: string
 }
 
+// ── Constants ─────────────────────────────────────────────────────────────────
 const SPECIALTY_LABEL: Record<string, string> = {
   interventional_cardiology: 'Interventional Cardiology',
   cardiac_surgery: 'Cardiac Surgery', cardiology: 'Cardiology',
@@ -59,166 +53,182 @@ const SPECIALTY_LABEL: Record<string, string> = {
   rheumatology: 'Rheumatology', ent: 'ENT', other: 'Specialist',
 }
 
-const CITY_BENCHMARK: Record<string, number> = {
-  Hyderabad: 14, Bengaluru: 16, Mumbai: 18, 'Delhi / NCR': 17,
-  Chennai: 13, Kolkata: 12, Pune: 14, Ahmedabad: 12, default: 11,
+const STATUS_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
+  submitted:         { bg: 'bg-blue-50',    text: 'text-blue-700',    dot: 'bg-blue-500' },
+  queried:           { bg: 'bg-purple-50',  text: 'text-purple-700',  dot: 'bg-purple-500' },
+  info_provided:     { bg: 'bg-indigo-50',  text: 'text-indigo-700',  dot: 'bg-indigo-500' },
+  accepted:          { bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500' },
+  patient_arrived:   { bg: 'bg-teal-50',    text: 'text-teal-700',    dot: 'bg-teal-500' },
+  procedure_planned: { bg: 'bg-cyan-50',    text: 'text-cyan-700',    dot: 'bg-cyan-500' },
+  completed:         { bg: 'bg-green-50',   text: 'text-green-700',   dot: 'bg-green-500' },
+  declined:          { bg: 'bg-red-50',     text: 'text-red-600',     dot: 'bg-red-500' },
+  cancelled:         { bg: 'bg-gray-100',   text: 'text-gray-500',    dot: 'bg-gray-400' },
 }
 
-function peerStatus(p: Peer): 'new' | 'active' | 'drifting' | 'silent' {
-  if (!p.last_referral_at) return 'new'
-  const d = p.days_since_last ?? 999
-  if (d < 30) return 'active'
-  if (d < 90) return 'drifting'
-  return 'silent'
+const REFERRER_STATUS: Record<string, { label: string; bg: string; text: string }> = {
+  active:   { label: 'Active',   bg: 'bg-emerald-50', text: 'text-emerald-700' },
+  drifting: { label: 'Drifting', bg: 'bg-amber-50',   text: 'text-amber-700' },
+  silent:   { label: 'Silent',   bg: 'bg-red-50',     text: 'text-red-600' },
+  new:      { label: 'New',      bg: 'bg-blue-50',    text: 'text-blue-700' },
 }
 
-const STATUS_PILL: Record<string, string> = {
-  active:   'bg-forest-50 text-forest-700',
-  new:      'bg-blue-50 text-blue-700',
-  drifting: 'bg-amber-50 text-amber-700',
-  silent:   'bg-red-50 text-red-600',
+const MODULES = [
+  { label: 'Referrals',     path: '/referrals',       color: 'bg-blue-50 text-blue-700',     icon: <FileText size={18} /> },
+  { label: 'Triage',        path: '/triage/sessions', color: 'bg-teal-50 text-teal-700',     icon: <Activity size={18} /> },
+  { label: 'Appointments',  path: '/appointments',    color: 'bg-emerald-50 text-emerald-700',icon: <Calendar size={18} /> },
+  { label: 'Synthesis',     path: '/synthesis',       color: 'bg-purple-50 text-purple-700', icon: <TrendingUp size={18} /> },
+  { label: 'Transcription', path: '/transcription',   color: 'bg-amber-50 text-amber-700',   icon: <Clock size={18} /> },
+  { label: 'Network',       path: '/network',         color: 'bg-navy-50 text-navy-800',     icon: <Users size={18} /> },
+]
+
+function daysAgo(date: string) {
+  const d = Math.floor((Date.now() - new Date(date).getTime()) / 86400000)
+  if (d === 0) return 'Today'
+  if (d === 1) return 'Yesterday'
+  return `${d}d ago`
 }
 
-function MetricCard({
-  label, value, sub, delta, deltaUp, icon, color, onClick
+function initials(name: string) {
+  return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
+}
+
+// ── KPI Card ──────────────────────────────────────────────────────────────────
+function KpiCard({
+  label, value, sub, highlight, highlightColor, cta, onClick,
 }: {
-  label: string; value: string | number; sub?: string
-  delta?: string; deltaUp?: boolean
-  icon: React.ReactNode; color: string; onClick?: () => void
+  label: string
+  value: string | number
+  sub?: string
+  highlight?: string
+  highlightColor?: string
+  cta: string
+  onClick: () => void
 }) {
   return (
     <button
       onClick={onClick}
-      className={`metric-card text-left hover:shadow-clinical-md transition-all ${onClick ? 'cursor-pointer' : ''}`}
+      className="bg-white rounded-2xl border border-navy-800/8 p-4 text-left
+                 hover:shadow-md hover:border-navy-800/15 active:scale-[0.98]
+                 transition-all group w-full"
     >
-      <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${color}`}>
-        {icon}
+      <div className="mb-3">
+        <div className="text-xs font-semibold text-navy-800/50 uppercase tracking-wide mb-2">{label}</div>
+        <div className="font-display text-4xl font-bold text-navy-800 leading-none">{value}</div>
+        {sub && <div className="text-xs text-navy-800/45 mt-1.5">{sub}</div>}
+        {highlight && (
+          <div className={`text-xs font-semibold mt-1 ${highlightColor ?? 'text-amber-600'}`}>
+            {highlight}
+          </div>
+        )}
       </div>
-      <div className="metric-value">{value}</div>
-      <div className="metric-label">{label}</div>
-      {sub && <div className="text-xs text-ink/35">{sub}</div>}
-      {delta && (
-        <div className={deltaUp ? 'metric-delta-up' : 'metric-delta-down'}>
-          {deltaUp ? '↑' : '↓'} {delta}
-        </div>
-      )}
+      <div className="flex items-center gap-1.5 text-xs font-bold text-navy-800
+                      group-hover:gap-2.5 transition-all">
+        {cta} <ArrowRight size={13} />
+      </div>
     </button>
   )
 }
 
-function PeerRow({ peer, onClick }: { peer: Peer; onClick: () => void }) {
-  const status = peerStatus(peer)
-  const daysSince = peer.days_since_last
-  const lastLabel = !peer.last_referral_at
-    ? 'No referral recorded yet'
-    : daysSince === 0 ? 'Active today'
-    : daysSince === 1 ? 'Active yesterday'
-    : `${daysSince}d ago`
-
-  return (
-    <button
-      onClick={onClick}
-      className="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-navy-50/60 transition-colors text-left group"
-    >
-      <div className="w-9 h-9 rounded-xl bg-navy-800/6 flex items-center justify-center flex-shrink-0">
-        <span className="text-sm font-semibold text-navy-800">
-          {peer.peer_name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
-        </span>
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-ink truncate">{peer.peer_name}</span>
-          <span className={`text-2xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${STATUS_PILL[status]}`}>
-            {status.charAt(0).toUpperCase() + status.slice(1)}
-          </span>
-        </div>
-        <div className="text-xs text-ink/40 truncate mt-0.5">
-          {peer.peer_specialty ? `${peer.peer_specialty} · ` : ''}{peer.peer_city} · {lastLabel}
-        </div>
-      </div>
-      <ChevronRight size={15} className="text-ink/20 flex-shrink-0 group-hover:text-ink/40 transition-colors" />
-    </button>
-  )
-}
-
-// Module quick access cards
-const MODULES = [
-  { label: 'Referrals',     path: '/referrals',             color: 'bg-navy-50 text-navy-800',    icon: <FileText size={18} /> },
-  { label: 'Triage',        path: '/triage/sessions',       color: 'bg-teal-50 text-teal-700',    icon: <Activity size={18} /> },
-  { label: 'Appointments',  path: '/appointments',          color: 'bg-forest-50 text-forest-700',icon: <Calendar size={18} /> },
-  { label: 'Synthesis',     path: '/synthesis',             color: 'bg-purple-50 text-purple-700',icon: <TrendingUp size={18} /> },
-  { label: 'Transcription', path: '/transcription',         color: 'bg-amber-50 text-amber-700',  icon: <Clock size={18} /> },
-  { label: 'Chatbot',       path: '/chatbot/config',        color: 'bg-blue-50 text-blue-700',    icon: <Activity size={18} /> },
-]
-
-export default function DashboardClient({ specialist, peers, isNewlyOnboarded, userPhoto }: Props) {
+// ── Main component ────────────────────────────────────────────────────────────
+export default function DashboardClient({
+  specialist, referrers, cases, healthScore, cityBenchmark, isNewlyOnboarded, userPhoto,
+}: Props) {
   const router = useRouter()
-  const [dismissedAha, setDismissedAha] = useState(false)
+  const [dismissedBanner, setDismissedBanner] = useState(false)
 
-  const activePeers   = peers.filter(p => peerStatus(p) === 'active')
-  const driftingPeers = peers.filter(p => peerStatus(p) === 'drifting')
-  const silentPeers   = peers.filter(p => peerStatus(p) === 'silent')
-  const newPeers      = peers.filter(p => peerStatus(p) === 'new')
+  // Derived
+  const activeReferrers   = referrers.filter(r => r.status === 'active')
+  const driftingReferrers = referrers.filter(r => r.status === 'drifting')
+  const silentReferrers   = referrers.filter(r => r.status === 'silent')
+  const atRisk            = driftingReferrers.length + silentReferrers.length
 
-  const benchmark  = CITY_BENCHMARK[specialist.city] ?? CITY_BENCHMARK.default
-  const networkGap = Math.max(0, benchmark - peers.length)
-  const firstName  = specialist.name.split(' ').find(p => p.length > 1) ?? specialist.name.split(' ')[0]
+  const pendingCases = cases.filter(c => ['submitted', 'queried', 'info_provided'].includes(c.status))
+  const urgentCases  = pendingCases.filter(c => c.urgency === 'urgent' || c.urgency === 'emergency')
 
-  const greeting = (() => {
+  const firstName = specialist.name.split(' ').find(p => p.length > 1) ?? specialist.name.split(' ')[0]
+  const greeting  = (() => {
     const h = new Date().getHours()
-    if (h < 12) return 'Good morning'
-    if (h < 17) return 'Good afternoon'
-    return 'Good evening'
+    return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'
   })()
 
-  return (
-    <div className="space-y-6 max-w-4xl">
+  const profile      = (specialist.specialist_profiles as any)?.[0]
+                     ?? (specialist.specialist_profiles as any) ?? null
+  const completeness = profile?.completeness_pct ?? 0
 
-      {/* ── Page header ─────────────────────────────── */}
-      <div className="flex items-start justify-between">
+  return (
+    <div className="space-y-5 pb-10">
+
+      {/* ── Greeting header ───────────────────────────────────────────── */}
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="page-title">
-            {isNewlyOnboarded ? `Welcome to ClinCollab, ${firstName}` : `${greeting}, ${firstName}`}
+          <h1 className="font-display text-2xl font-bold text-navy-800 leading-tight">
+            {greeting}, Dr. {firstName}
           </h1>
-          <p className="page-subtitle">
+          <p className="text-sm text-navy-800/50 mt-0.5">
             {SPECIALTY_LABEL[specialist.specialty] ?? specialist.specialty} · {specialist.city}
-            {specialist.role === 'admin' && (
-              <span className="ml-2 text-2xs font-mono uppercase tracking-wider text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">Admin</span>
-            )}
           </p>
         </div>
         <button
           onClick={() => router.push('/network/add')}
-          className="hidden sm:flex items-center gap-2 btn-secondary text-sm py-2 px-4"
+          className="flex items-center gap-2 bg-navy-800 text-white text-xs font-bold
+                     px-4 py-2.5 rounded-xl hover:bg-navy-900 active:scale-95
+                     transition-all flex-shrink-0"
         >
-          <Plus size={15} /> Add colleague
+          <Plus size={14} /> Add colleague
         </button>
       </div>
 
-      {/* ── Aha moment banner ───────────────────────── */}
-      {isNewlyOnboarded && !dismissedAha && peers.length > 0 && (
-        <div
-          className="rounded-2xl p-5 relative overflow-hidden animate-slide-up"
-          style={{ background: 'linear-gradient(135deg, #0A1628 0%, #1A5276 100%)' }}
-        >
-          <div className="absolute right-0 top-0 bottom-0 w-1/3 opacity-10"
-            style={{ background: 'radial-gradient(ellipse at right, rgba(93,173,226,0.6), transparent)' }} />
+      {/* ── Urgent referrals banner ────────────────────────────────────── */}
+      {urgentCases.length > 0 && (
+        <div className="rounded-2xl p-4 border-2 border-red-200"
+             style={{ background: 'linear-gradient(135deg, #fef2f2 0%, #fff5f5 100%)' }}>
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-red-500 flex items-center justify-center flex-shrink-0">
+              <Bell size={16} className="text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                <span className="text-sm font-bold text-red-700">Priority attention required</span>
+              </div>
+              <p className="text-xs text-red-700/80 leading-relaxed mb-3">
+                {urgentCases.length} urgent/emergency referral{urgentCases.length > 1 ? 's' : ''} awaiting
+                your response. These cases have been flagged by referring doctors as time-sensitive.
+              </p>
+              <button
+                onClick={() => router.push('/referrals?status=action_needed')}
+                className="inline-flex items-center gap-2 bg-red-600 text-white text-xs font-bold
+                           px-4 py-2 rounded-xl hover:bg-red-700 active:scale-95 transition-all"
+              >
+                Review urgent cases now <ArrowRight size={12} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Welcome banner (newly onboarded) ─────────────────────────── */}
+      {isNewlyOnboarded && !dismissedBanner && (
+        <div className="rounded-2xl p-5 relative overflow-hidden"
+             style={{ background: 'linear-gradient(135deg, #0A1628 0%, #1A5276 100%)' }}>
           <div className="relative">
-            <div className="text-2xs font-mono uppercase tracking-widest mb-2" style={{ color: 'rgba(255,255,255,0.40)' }}>
-              Practice Intelligence
+            <div className="text-2xs font-mono uppercase tracking-widest text-white/40 mb-2">
+              Welcome to ClinCollab
             </div>
             <p className="text-sm text-white leading-relaxed mb-3 max-w-lg">
-              You've seeded <strong>{peers.length} colleague{peers.length !== 1 ? 's' : ''}</strong> into your network.
-              {networkGap > 0 && <> Adding <strong>{networkGap} more</strong> reaches the {specialist.city} benchmark of {benchmark} active referrers.</>}
-              {' '}Specialists with mapped networks see <strong>34% higher referral growth</strong>.
+              Your practice intelligence is now active. Add your referring colleagues to unlock
+              network analytics, referral tracking, and re-engagement alerts.
             </p>
             <div className="flex items-center gap-3">
-              <button onClick={() => router.push('/network')}
-                className="text-xs font-medium text-white bg-white/15 hover:bg-white/20 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1">
-                View network <ArrowRight size={12} />
+              <button
+                onClick={() => router.push('/network/add')}
+                className="text-xs font-bold text-white bg-white/15 hover:bg-white/25
+                           px-4 py-2 rounded-xl transition-colors flex items-center gap-1.5"
+              >
+                Add first colleague <ArrowRight size={12} />
               </button>
-              <button onClick={() => setDismissedAha(true)}
-                className="text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>
+              <button onClick={() => setDismissedBanner(true)}
+                className="text-xs text-white/35 hover:text-white/60 transition-colors">
                 Dismiss
               </button>
             </div>
@@ -226,181 +236,214 @@ export default function DashboardClient({ specialist, peers, isNewlyOnboarded, u
         </div>
       )}
 
-      {/* ── KPI metric cards ─────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard
-          label="Active Referrers"
-          value={activePeers.length}
-          sub={`of ${peers.length} total`}
-          icon={<Users size={18} />}
-          color="bg-forest-50 text-forest-700"
-          onClick={() => router.push('/network?filter=active')}
-        />
-        <MetricCard
-          label="Network Score"
-          value={peers.length === 0 ? '—' : Math.round((activePeers.length / Math.max(peers.length, 1)) * 100)}
-          sub={peers.length > 0 ? '% active' : 'Add colleagues'}
-          icon={<Activity size={18} />}
-          color="bg-navy-50 text-navy-800"
-        />
-        <MetricCard
-          label="Need Attention"
-          value={driftingPeers.length + silentPeers.length}
-          sub="drifting or silent"
-          icon={<AlertTriangle size={18} />}
-          color={driftingPeers.length + silentPeers.length > 0 ? 'bg-amber-50 text-amber-600' : 'bg-forest-50 text-forest-700'}
-          onClick={() => router.push('/network?filter=drifting')}
-        />
-        <MetricCard
-          label="vs. City Avg"
-          value={peers.length === 0 ? '—' : peers.length >= benchmark ? `+${peers.length - benchmark}` : `-${benchmark - peers.length}`}
-          sub={`${specialist.city} avg: ${benchmark}`}
-          deltaUp={peers.length >= benchmark}
-          delta={peers.length > 0 ? `vs ${benchmark} avg` : undefined}
-          icon={<TrendingUp size={18} />}
-          color="bg-clinical-blue/10 text-navy-800"
-        />
+      {/* ── 4 Strategic KPI cards ─────────────────────────────────────── */}
+      <div>
+        <div className="text-xs font-bold text-navy-800/40 uppercase tracking-widest mb-3">
+          Your practice at a glance
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <KpiCard
+            label="Needs Response"
+            value={pendingCases.length}
+            sub={`referral${pendingCases.length !== 1 ? 's' : ''} awaiting your decision`}
+            highlight={urgentCases.length > 0 ? `${urgentCases.length} urgent/emergency` : undefined}
+            highlightColor="text-red-600"
+            cta="Review referrals"
+            onClick={() => router.push('/referrals?status=action_needed')}
+          />
+          <KpiCard
+            label="Active Referrers"
+            value={activeReferrers.length}
+            sub={`of ${referrers.length} total · ${cityBenchmark} is ${specialist.city} avg`}
+            highlight={activeReferrers.length < cityBenchmark
+              ? `${cityBenchmark - activeReferrers.length} below city average`
+              : `${activeReferrers.length - cityBenchmark} above city average`}
+            highlightColor={activeReferrers.length >= cityBenchmark ? 'text-emerald-600' : 'text-amber-600'}
+            cta="View network"
+            onClick={() => router.push('/network?filter=active')}
+          />
+          <KpiCard
+            label="Network Health"
+            value={healthScore}
+            sub="out of 100 · based on engagement + volume"
+            highlight={healthScore >= 70 ? 'Strong network' : healthScore >= 40 ? 'Needs attention' : 'At risk'}
+            highlightColor={healthScore >= 70 ? 'text-emerald-600' : healthScore >= 40 ? 'text-amber-600' : 'text-red-600'}
+            cta="See full network analytics"
+            onClick={() => router.push('/network')}
+          />
+          <KpiCard
+            label="Relationships at Risk"
+            value={atRisk}
+            sub={`${driftingReferrers.length} drifting · ${silentReferrers.length} silent (90d+)`}
+            highlight={atRisk > 0 ? 'Re-engage before they go quiet' : 'All relationships healthy'}
+            highlightColor={atRisk > 0 ? 'text-amber-600' : 'text-emerald-600'}
+            cta={atRisk > 0 ? 'Re-engage now' : 'View network'}
+            onClick={() => router.push(atRisk > 0 ? '/network?filter=silent' : '/network')}
+          />
+        </div>
       </div>
 
-      {/* ── Main content grid ─────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-
-        {/* Peer network — wider column */}
-        <div className="lg:col-span-3 bg-white rounded-2xl border border-navy-800/8 overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-navy-800/6">
-            <div>
-              <div className="data-label mb-0.5">Clinical Colleagues</div>
-              <div className="text-xs text-ink/40">{peers.length} in your network</div>
-            </div>
-            <div className="flex items-center gap-2">
-              {/* Benchmark bar */}
-              {peers.length > 0 && (
-                <div className="flex items-center gap-2 mr-2">
-                  <div className="w-20 h-1.5 bg-navy-800/8 rounded-full overflow-hidden">
-                    <div className="h-full bg-navy-800 rounded-full transition-all duration-700"
-                      style={{ width: `${Math.min(100, (peers.length / benchmark) * 100)}%` }} />
-                  </div>
-                  <span className="text-2xs text-ink/35 font-mono">{peers.length}/{benchmark}</span>
-                </div>
-              )}
-              <button onClick={() => router.push('/network')}
-                className="text-xs font-medium text-navy-800/60 hover:text-navy-800 transition-colors flex items-center gap-1">
-                All <ChevronRight size={13} />
-              </button>
-            </div>
+      {/* ── Recent referral cases ─────────────────────────────────────── */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-xs font-bold text-navy-800/40 uppercase tracking-widest">
+            Recent referral cases
           </div>
-
-          {peers.length > 0 ? (
-            <div className="p-2">
-              {peers.slice(0, 6).map(peer => (
-                <PeerRow key={peer.id} peer={peer}
-                  onClick={() => router.push(`/network/${peer.id}`)} />
-              ))}
-              {peers.length > 6 && (
-                <button onClick={() => router.push('/network')}
-                  className="w-full text-center text-xs py-3 transition-colors"
-                  style={{ color: 'rgba(13,27,42,0.35)' }}>
-                  View all {peers.length} colleagues
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-14 px-6 text-center">
-              <div className="w-14 h-14 rounded-2xl bg-navy-800/5 flex items-center justify-center mb-4">
-                <Users size={24} className="text-navy-800/30" />
-              </div>
-              <h3 className="font-display text-lg text-ink mb-2">Build your peer network</h3>
-              <p className="text-sm text-ink/45 mb-5 max-w-xs leading-relaxed">
-                Add the colleagues who refer cases to you. ClinCollab will track engagement and alert you when relationships drift.
-              </p>
-              <button onClick={() => router.push('/network/add')} className="btn-primary text-sm py-2.5 px-5">
-                Add first colleague
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Right column */}
-        <div className="lg:col-span-2 space-y-4">
-
-          {/* Alert card */}
-          {silentPeers.length > 0 && (
-            <div className="bg-amber-50 border border-amber-200/60 rounded-2xl p-4">
-              <div className="flex items-start gap-3">
-                <AlertTriangle size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
-                <div>
-                  <div className="text-sm font-semibold text-amber-900 mb-1">
-                    {silentPeers.length} silent referrer{silentPeers.length !== 1 ? 's' : ''}
-                  </div>
-                  <p className="text-xs text-amber-800/70 leading-relaxed mb-2">
-                    {silentPeers[0].peer_name}{silentPeers.length > 1 ? ` and ${silentPeers.length - 1} other${silentPeers.length > 2 ? 's' : ''}` : ''}{' '}
-                    {silentPeers.length === 1 ? 'has' : 'have'} not referred in 90+ days.
-                  </p>
-                  <button onClick={() => router.push('/network?filter=silent')}
-                    className="text-xs font-medium text-amber-800 hover:text-amber-900 transition-colors flex items-center gap-1">
-                    Re-engage now <ArrowRight size={12} />
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Synthesis quick-access */}
           <button
-            onClick={() => router.push('/synthesis')}
-            className="w-full bg-white rounded-2xl border border-navy-800/8 p-4 text-left hover:shadow-clinical-md transition-all group"
+            onClick={() => router.push('/referrals')}
+            className="text-xs font-semibold text-navy-800/60 hover:text-navy-800
+                       flex items-center gap-1 transition-colors"
           >
-            <div className="flex items-start gap-3">
-              <div className="w-9 h-9 bg-purple-50 rounded-xl flex items-center justify-center flex-shrink-0">
-                <TrendingUp size={18} className="text-purple-600" />
-              </div>
-              <div className="flex-1">
-                <div className="text-sm font-semibold text-ink mb-0.5">360° Synthesis</div>
-                <div className="text-xs text-ink/45 leading-relaxed">Pre-consultation briefs from all patient data. Ready before they walk in.</div>
-              </div>
-              <ChevronRight size={15} className="text-ink/20 group-hover:text-ink/40 mt-0.5 flex-shrink-0 transition-colors" />
-            </div>
+            All cases <ChevronRight size={13} />
           </button>
-
-          {/* Profile completeness */}
-          {(specialist.specialist_profiles?.completeness_pct ?? 0) < 70 && (
+        </div>
+        {cases.length > 0 ? (
+          <div className="bg-white rounded-2xl border border-navy-800/8 overflow-hidden">
+            {cases.slice(0, 5).map((c, idx) => {
+              const st     = STATUS_COLORS[c.status] || STATUS_COLORS.submitted
+              const isUrg  = c.urgency === 'urgent' || c.urgency === 'emergency'
+              const refName = c.referring_doctors?.name || 'Unknown'
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => router.push(`/referrals/${c.id}`)}
+                  className={`w-full flex items-center gap-3 px-4 py-3.5 text-left
+                    hover:bg-navy-50/60 active:bg-navy-50 transition-colors
+                    ${idx < Math.min(cases.length, 5) - 1 ? 'border-b border-navy-800/5' : ''}`}
+                >
+                  <div className={`w-1 self-stretch rounded-full flex-shrink-0 ${
+                    c.urgency === 'emergency' ? 'bg-red-500' :
+                    c.urgency === 'urgent'    ? 'bg-amber-400' : 'bg-navy-800/10'
+                  }`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-sm font-semibold text-navy-800 truncate flex-1">
+                        {c.patient_name}
+                      </span>
+                      <span className={`text-2xs px-2 py-0.5 rounded-full font-semibold flex-shrink-0 ${st.bg} ${st.text}`}>
+                        {c.status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                      </span>
+                    </div>
+                    <div className="text-xs text-navy-800/45">
+                      From Dr. {refName}
+                      {isUrg && (
+                        <span className={`ml-2 font-semibold ${c.urgency === 'emergency' ? 'text-red-600' : 'text-amber-600'}`}>
+                          · {c.urgency === 'emergency' ? '🔴 Emergency' : '🟡 Urgent'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-xs text-navy-800/30 flex-shrink-0 text-right">
+                    {daysAgo(c.submitted_at)}
+                  </div>
+                  <ChevronRight size={14} className="text-navy-800/20 flex-shrink-0" />
+                </button>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="bg-white rounded-2xl border border-navy-800/8 p-6 text-center">
+            <p className="text-sm text-navy-800/40 mb-3">No referral cases yet</p>
             <button
-              onClick={() => router.push('/profile')}
-              className="w-full bg-white rounded-2xl border border-navy-800/8 p-4 text-left hover:shadow-clinical-md transition-all group"
+              onClick={() => router.push('/referrals')}
+              className="inline-flex items-center gap-2 bg-navy-800 text-white text-xs font-bold
+                         px-4 py-2 rounded-xl hover:bg-navy-900 transition-all"
             >
-              <div className="flex items-center justify-between mb-3">
-                <div className="text-sm font-semibold text-ink">Complete your profile</div>
-                <span className="text-xs font-mono text-ink/40">
-                  {specialist.specialist_profiles?.completeness_pct ?? 0}%
+              Generate referral link <ArrowRight size={12} />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ── Active referrers needing attention ────────────────────────── */}
+      {silentReferrers.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200/70 rounded-2xl p-4">
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <div className="flex items-center gap-2 mb-0.5">
+                <AlertTriangle size={15} className="text-amber-600 flex-shrink-0" />
+                <span className="text-sm font-bold text-amber-900">
+                  {silentReferrers.length} silent referrer{silentReferrers.length > 1 ? 's' : ''} — act now
                 </span>
               </div>
-              <div className="h-1.5 bg-navy-800/8 rounded-full overflow-hidden mb-2">
-                <div className="h-full bg-navy-800 rounded-full transition-all duration-700"
-                  style={{ width: `${specialist.specialist_profiles?.completeness_pct ?? 0}%` }} />
-              </div>
-              <p className="text-xs text-ink/45 leading-relaxed">
-                Complete profiles receive 34% more direct referrals. Add hospital affiliation to unlock.
+              <p className="text-xs text-amber-800/70">
+                These colleagues have not referred in 90+ days. Re-engage before the relationship is lost.
               </p>
-            </button>
-          )}
+            </div>
+          </div>
+          <div className="space-y-1.5 mb-3">
+            {silentReferrers.slice(0, 3).map(r => (
+              <button
+                key={r.id}
+                onClick={() => router.push(`/network/${r.id}`)}
+                className="w-full flex items-center gap-3 bg-white rounded-xl px-3 py-2.5
+                           hover:bg-amber-50 border border-amber-100/80 transition-colors text-left"
+              >
+                <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                  <span className="text-xs font-bold text-amber-700">{initials(r.name)}</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold text-amber-900 truncate">{r.name}</div>
+                  <div className="text-xs text-amber-700/60">
+                    {r.total_referrals} total referrals · silent {r.days_since_last}d
+                  </div>
+                </div>
+                <ChevronRight size={14} className="text-amber-600/40 flex-shrink-0" />
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => router.push('/network?filter=silent')}
+            className="w-full flex items-center justify-center gap-2 bg-amber-500
+                       text-white text-xs font-bold px-4 py-2.5 rounded-xl
+                       hover:bg-amber-600 active:scale-95 transition-all"
+          >
+            Re-engage all silent referrers <ArrowRight size={13} />
+          </button>
         </div>
-      </div>
+      )}
 
-      {/* ── Module quick access ───────────────────────── */}
+      {/* ── Profile completeness nudge ─────────────────────────────────── */}
+      {completeness < 70 && (
+        <button
+          onClick={() => router.push('/profile')}
+          className="w-full bg-white rounded-2xl border border-navy-800/8 p-4 text-left
+                     hover:shadow-md transition-all group"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-bold text-navy-800">Complete your profile</span>
+            <span className="text-xs font-bold text-navy-800/40">{completeness}% done</span>
+          </div>
+          <div className="h-2 bg-navy-800/8 rounded-full overflow-hidden mb-2">
+            <div className="h-full bg-navy-800 rounded-full transition-all duration-700"
+                 style={{ width: `${completeness}%` }} />
+          </div>
+          <p className="text-xs text-navy-800/50 leading-relaxed">
+            Complete profiles receive more direct referrals. Add MCI number, hospitals, and bio.
+          </p>
+          <div className="flex items-center gap-1.5 text-xs font-bold text-navy-800 mt-2
+                          group-hover:gap-2.5 transition-all">
+            Complete profile <ArrowRight size={12} />
+          </div>
+        </button>
+      )}
+
+      {/* ── Module quick access ────────────────────────────────────────── */}
       <div>
-        <div className="data-label mb-3">Quick Access</div>
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+        <div className="text-xs font-bold text-navy-800/40 uppercase tracking-widest mb-3">Quick access</div>
+        <div className="grid grid-cols-3 gap-2.5">
           {MODULES.map(m => (
             <button
               key={m.path}
               onClick={() => router.push(m.path)}
-              className="bg-white rounded-2xl border border-navy-800/8 p-4 flex flex-col items-center gap-2
-                         hover:shadow-clinical-md transition-all group"
+              className="bg-white rounded-2xl border border-navy-800/8 p-3.5 flex flex-col
+                         items-center gap-2 hover:shadow-md hover:border-navy-800/15
+                         active:scale-95 transition-all"
             >
               <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${m.color}`}>
                 {m.icon}
               </div>
-              <span className="text-xs font-medium text-ink/70 group-hover:text-ink transition-colors text-center leading-tight">
+              <span className="text-xs font-semibold text-navy-800/65 text-center leading-tight">
                 {m.label}
               </span>
             </button>
