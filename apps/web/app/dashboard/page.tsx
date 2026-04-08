@@ -15,16 +15,13 @@ export default async function DashboardPage({
 
   const db = createServiceRoleClient()
 
-  // Step 1 — get specialist (needed for all sub-queries)
+  // ── Step 1: get specialist ────────────────────────────────────────────────
   const { data: specialist } = await db
     .from('specialists')
     .select(`
       id, name, specialty, city, status, role,
       last_active_at, created_at,
-      specialist_profiles (
-        designation, sub_specialty, hospitals,
-        years_experience, photo_url, completeness_pct
-      )
+      specialist_profiles ( completeness_pct, photo_url, designation )
     `)
     .eq('google_id', user.id)
     .single()
@@ -32,50 +29,106 @@ export default async function DashboardPage({
   if (!specialist) redirect('/onboarding')
   if (specialist.status === 'onboarding') redirect('/onboarding')
 
-  // Step 2 — parallel queries (3x faster than sequential)
-  const [referrersRes, casesRes, scoreRes] = await Promise.all([
-    // referrers table — same source as Network module, keeps numbers in sync
+  // ── Step 2: all queries in parallel (performance) ─────────────────────────
+  const thirteenMonthsAgo = new Date()
+  thirteenMonthsAgo.setMonth(thirteenMonthsAgo.getMonth() - 13)
+
+  const [referrersRes, analyticsRes, trendRes, pipelineRes, scoreRes] = await Promise.all([
+    // Network data — same table as Network module, numbers stay in sync
     db.from('referrers')
-      .select('id, name, specialty, status, total_referrals, last_referral_at, days_since_last, whatsapp, clinic_name, city')
+      .select('id, status, total_referrals')
       .eq('specialist_id', specialist.id)
-      .eq('is_deleted', false)
-      .order('last_referral_at', { ascending: false, nullsFirst: false }),
+      .eq('is_deleted', false),
 
-    // recent referral cases for pipeline view
+    // Aggregated analytics — gives total, this month, last month, avg response
+    db.from('v_referral_analytics')
+      .select('total_cases, accepted_cases, completed_cases, cases_this_month, cases_last_month, avg_hours_to_accept')
+      .eq('specialist_id', specialist.id)
+      .single(),
+
+    // 13 months of case dates for YTD and trend computation
     db.from('referral_cases')
-      .select(`
-        id, reference_no, patient_name, status, urgency, submitted_at,
-        referring_doctors ( name, specialty )
-      `)
+      .select('submitted_at')
       .eq('specialist_id', specialist.id)
-      .order('submitted_at', { ascending: false })
-      .limit(6),
+      .gte('submitted_at', thirteenMonthsAgo.toISOString()),
 
-    // same RPC as Network module — identical score
+    // Open pipeline cases — just status and urgency, no personal data
+    db.from('referral_cases')
+      .select('status, urgency')
+      .eq('specialist_id', specialist.id)
+      .not('status', 'in', '("completed","closed","declined","cancelled")'),
+
+    // Same RPC as Network module — identical score
     db.rpc('compute_network_health_score', { p_specialist_id: specialist.id }),
   ])
 
   // fire-and-forget last_active update
-  db.from('specialists').update({ last_active_at: new Date().toISOString() }).eq('id', specialist.id)
+  db.from('specialists')
+    .update({ last_active_at: new Date().toISOString() })
+    .eq('id', specialist.id)
 
   // ── Deduplicate referrers (same logic as Network module) ─────────────────
   const seenNames = new Map<string, NonNullable<typeof referrersRes.data>[0]>()
   for (const r of (referrersRes.data || [])) {
-    const key = r.name.toLowerCase().trim()
+    const key = (r as any).name?.toLowerCase?.().trim() ?? r.id
     const prev = seenNames.get(key)
-    if (!prev || r.total_referrals > prev.total_referrals) seenNames.set(key, r)
+    if (!prev || (r.total_referrals ?? 0) > (prev.total_referrals ?? 0)) seenNames.set(key, r)
   }
-  const referrers   = Array.from(seenNames.values())
-  const allCases    = casesRes.data || []
-  const healthScore = (scoreRes.data as number) ?? 0
+  const referrers = Array.from(seenNames.values())
 
-  // ── Derived metrics ──────────────────────────────────────────────────────
-  const activeReferrers   = referrers.filter(r => r.status === 'active')
-  const driftingReferrers = referrers.filter(r => r.status === 'drifting')
-  const silentReferrers   = referrers.filter(r => r.status === 'silent')
-  const atRisk            = driftingReferrers.length + silentReferrers.length
-  const pendingCases      = allCases.filter(c => ['submitted', 'queried', 'info_provided'].includes(c.status))
-  const urgentCases       = pendingCases.filter(c => c.urgency === 'urgent' || c.urgency === 'emergency')
+  // ── Network summary ───────────────────────────────────────────────────────
+  const activeCount   = referrers.filter(r => r.status === 'active').length
+  const driftingCount = referrers.filter(r => r.status === 'drifting').length
+  const silentCount   = referrers.filter(r => r.status === 'silent').length
+  const newCount      = referrers.filter(r => r.status === 'new').length
+  const totalRef      = referrers.length
+  const healthScore   = (scoreRes.data as number) ?? 0
+
+  // ── Pipeline summary ──────────────────────────────────────────────────────
+  const openCases     = pipelineRes.data || []
+  const needsResponse = openCases.filter(c =>
+    ['submitted', 'queried', 'info_provided'].includes(c.status)
+  ).length
+  const urgentCount   = openCases.filter(c =>
+    ['submitted', 'queried', 'info_provided'].includes(c.status) &&
+    (c.urgency === 'urgent' || c.urgency === 'emergency')
+  ).length
+  const inProgress    = openCases.filter(c =>
+    ['accepted', 'patient_arrived', 'procedure_planned'].includes(c.status)
+  ).length
+
+  // ── Volume / trend computation ────────────────────────────────────────────
+  const an      = analyticsRes.data
+  const now     = new Date()
+  const thisYr  = now.getFullYear()
+  const thisMon = now.getMonth()
+
+  const trendDates = (trendRes.data || []).map(r => new Date(r.submitted_at))
+
+  // YTD — Jan 1 to today, current year
+  const ytd = trendDates.filter(d => d.getFullYear() === thisYr).length
+
+  // Last year same period — Jan 1 to same calendar date last year
+  const samePointLastYear = new Date(now); samePointLastYear.setFullYear(thisYr - 1)
+  const lastYearYtd = trendDates.filter(d =>
+    d.getFullYear() === thisYr - 1 &&
+    d <= samePointLastYear
+  ).length
+
+  // 6-month trend
+  const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  const trend6m = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(thisYr, thisMon - (5 - i), 1)
+    const y = d.getFullYear(), m = d.getMonth()
+    return {
+      month: MONTH_SHORT[m],
+      count: trendDates.filter(cd => cd.getFullYear() === y && cd.getMonth() === m).length,
+    }
+  })
+
+  const acceptanceRate = an?.total_cases
+    ? Math.round(((an.accepted_cases ?? 0) / an.total_cases) * 100)
+    : 0
 
   const CITY_BENCHMARKS: Record<string, number> = {
     Hyderabad: 14, Bengaluru: 16, Mumbai: 18, Delhi: 17,
@@ -85,58 +138,58 @@ export default async function DashboardPage({
   const profile      = (specialist.specialist_profiles as any)?.[0]
                      ?? (specialist.specialist_profiles as any) ?? null
   const completeness = profile?.completeness_pct ?? 0
+  const ytdLabel     = `${MONTH_SHORT[0]}–${MONTH_SHORT[thisMon]} ${thisYr}`
 
-  // ── Actionable insight panel ─────────────────────────────────────────────
+  // ── Insight panel ─────────────────────────────────────────────────────────
   const insightData: InsightData = {
     moduleTitle: 'Dashboard',
     score:       healthScore,
     scoreLabel:  'Network Health Score',
     scoreColor:  healthScore >= 70 ? 'green' : healthScore >= 40 ? 'amber' : 'red',
     insights: [
-      urgentCases.length > 0
+      urgentCount > 0
         ? {
-            text: `${urgentCases.length} urgent/emergency referral${urgentCases.length > 1 ? 's' : ''} need immediate response. Delays reduce repeat referrals.`,
+            text: `${urgentCount} urgent/emergency referral${urgentCount > 1 ? 's' : ''} need immediate response. Every hour of delay reduces referrer retention.`,
             severity: 'critical' as const,
             cta: { label: 'Review urgent cases now', href: '/referrals?status=action_needed' },
           }
-        : pendingCases.length > 0
+        : needsResponse > 0
         ? {
-            text: `${pendingCases.length} referral${pendingCases.length > 1 ? 's' : ''} awaiting your response. Replying within 2 hours retains referrers.`,
+            text: `${needsResponse} referral${needsResponse > 1 ? 's' : ''} awaiting your response. Replying within 2 hours retains referrers.`,
             severity: 'warning' as const,
             cta: { label: 'Review pending cases', href: '/referrals?status=action_needed' },
           }
         : {
-            text: 'No pending referrals. Your pipeline is clear — good time to nurture your network.',
+            text: 'No pending referrals. Your pipeline is clear.',
             severity: 'positive' as const,
             cta: { label: 'View referral cases', href: '/referrals' },
           },
-
-      atRisk > 0
+      (driftingCount + silentCount) > 0
         ? {
-            text: `${atRisk} referrer relationship${atRisk > 1 ? 's' : ''} ${atRisk > 1 ? 'are' : 'is'} drifting or silent. Act before they disengage permanently.`,
+            text: `${driftingCount + silentCount} referrer relationship${driftingCount + silentCount > 1 ? 's' : ''} are drifting or silent — act before they disengage permanently.`,
             severity: 'warning' as const,
-            cta: { label: 'Re-engage now', href: '/network?filter=silent' },
+            cta: { label: 'Plan re-engagement', href: '/network?filter=silent' },
           }
         : {
-            text: `${activeReferrers.length} of your ${referrers.length} referrers are actively sending cases.`,
+            text: `${activeCount} of ${totalRef} referrers are actively sending cases. Network is healthy.`,
             severity: 'positive' as const,
-            cta: { label: 'View full network', href: '/network' },
+            cta: { label: 'View network', href: '/network' },
           },
-
-      completeness < 70
+      an && (an.cases_this_month ?? 0) > 0
         ? {
-            text: `Profile ${completeness}% complete. Incomplete profiles miss referrals from new colleagues searching your specialty.`,
+            text: `${an.cases_this_month} cases received this month${an.cases_last_month ? ` vs ${an.cases_last_month} last month` : ''}. YTD: ${ytd} cases.`,
             severity: 'info' as const,
-            cta: { label: 'Complete my profile', href: '/profile' },
+            cta: { label: 'View all cases', href: '/referrals' },
           }
         : {
-            text: `Profile ${completeness}% complete — peers can find and evaluate your clinical focus.`,
+            text: 'No cases received yet this month.',
             severity: 'info' as const,
+            cta: { label: 'Generate referral link', href: '/referrals' },
           },
     ],
-    benchmark:    `Platform data: specialists in ${specialist.city} with ${cityBench}+ active referrers achieve 34% higher case volume on average.`,
-    cta:          { label: 'Grow referral network',   href: '/network/add' },
-    secondaryCta: { label: 'View all referral cases', href: '/referrals' },
+    benchmark:    `Platform data: specialists in ${specialist.city} with ${cityBench}+ active referrers achieve 34% higher case volume.`,
+    cta:          { label: 'Manage referral network',  href: '/network' },
+    secondaryCta: { label: 'View all referral cases',  href: '/referrals' },
   }
 
   return (
@@ -151,13 +204,31 @@ export default async function DashboardPage({
       insightData={insightData}
     >
       <DashboardClient
-        specialist={specialist as any}
-        referrers={referrers as any}
-        cases={allCases as any}
-        healthScore={healthScore}
-        cityBenchmark={cityBench}
+        specialist={{ ...specialist, specialist_profiles: profile } as any}
+        volume={{
+          thisMonth:        an?.cases_this_month  ?? 0,
+          lastMonth:        an?.cases_last_month  ?? 0,
+          ytd,
+          lastYearYtd,
+          ytdLabel,
+          trend:            trend6m,
+          totalAllTime:     an?.total_cases        ?? 0,
+          completedAllTime: an?.completed_cases    ?? 0,
+          acceptanceRate,
+          avgHoursToAccept: an?.avg_hours_to_accept ?? null,
+        }}
+        network={{
+          total:                  totalRef,
+          active:                 activeCount,
+          drifting:               driftingCount,
+          silent:                 silentCount,
+          newReferrers:           newCount,
+          healthScore,
+          cityBenchmark:          cityBench,
+          plannedForEngagement:   driftingCount + silentCount,
+        }}
+        pipeline={{ needsResponse, urgent: urgentCount, inProgress }}
         isNewlyOnboarded={searchParams.onboarded === '1'}
-        userPhoto={user.user_metadata?.avatar_url}
       />
     </AppLayout>
   )

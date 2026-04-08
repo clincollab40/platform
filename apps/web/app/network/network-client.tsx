@@ -147,24 +147,26 @@ export default function NetworkClient({
     <div className="min-h-screen bg-clinical-light">
 
       {/* ── Nav ─────────────────────────────────── */}
-      <nav className="bg-white border-b border-navy-800/8 sticky top-0 z-40">
-        <div className="max-w-2xl mx-auto px-4 h-14 flex items-center gap-3">
+      {/* Non-sticky — AppLayout TopNav handles global sticky header */}
+      <div className="bg-white border-b border-navy-800/8">
+        <div className="px-5 h-14 flex items-center gap-3">
           <button onClick={() => router.push('/dashboard')}
-            className="text-navy-800/50 hover:text-navy-800 transition-colors">
+            className="text-navy-800/50 hover:text-navy-800 transition-colors flex-shrink-0">
             <ChevronLeft />
           </button>
-          <Image src="/logo.png" alt="" width={24} height={24} />
-          <span className="font-sans font-medium text-navy-800 flex-1">Peer network</span>
+          <div className="flex-1 min-w-0">
+            <span className="font-sans font-semibold text-navy-800 text-base">Peer network</span>
+          </div>
           <button
             onClick={() => router.push('/network/add')}
-            className="flex items-center gap-1.5 bg-navy-800 text-white text-xs font-medium
-                       px-3 py-2 rounded-xl hover:bg-navy-900 active:scale-95 transition-all">
+            className="flex items-center gap-1.5 bg-navy-800 text-white text-xs font-bold
+                       px-4 py-2 rounded-xl hover:bg-navy-900 active:scale-95 transition-all flex-shrink-0">
             <Plus /> Add colleague
           </button>
         </div>
-      </nav>
+      </div>
 
-      <main className="max-w-2xl mx-auto px-4 py-5 space-y-4">
+      <main className="px-5 py-5 space-y-4">
 
         {/* ── Intelligence summary ─────────────── */}
         <div className="card-clinical">
