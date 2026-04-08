@@ -125,8 +125,8 @@ export default function CommsDashboardClient({
 
   return (
     <div className="min-h-screen bg-clinical-light">
-      <nav className="bg-white border-b border-navy-800/8 sticky top-0 z-40">
-        <div className="max-w-2xl mx-auto px-4 h-14 flex items-center gap-3">
+      <div className="bg-white border-b border-navy-800/8">
+        <div className="px-5 h-14 flex items-center gap-3">
           <button onClick={() => router.push(`/procedures/${planId}`)} className="text-navy-800/50 hover:text-navy-800 transition-colors">
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12 5l-5 5 5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </button>
@@ -140,9 +140,9 @@ export default function CommsDashboardClient({
             Broadcast
           </button>
         </div>
-      </nav>
+      </div>
 
-      <main className="max-w-2xl mx-auto px-4 py-4 space-y-4">
+      <main className="px-5 py-4 space-y-4">
 
         {/* Analytics strip */}
         <div className="grid grid-cols-4 gap-2">

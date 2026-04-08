@@ -1,13 +1,17 @@
+// This route has moved to /communication
+// Redirect to new top-level Communications Pipeline module
 import { redirect } from 'next/navigation'
-import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server'
-import AppLayout from '@/components/layout/AppLayout'
-import type { InsightData } from '@/components/layout/InsightPanel'
-import CommsDashboardClient from './comms-dashboard-client'
 
 export default async function CommsDashboardPage({
   searchParams,
 }: { searchParams: { plan?: string } }) {
-  const authClient = await createServerSupabaseClient()
+  // Preserve plan context if provided — redirect to case journey
+  if (searchParams.plan) {
+    redirect(`/communication/${searchParams.plan}`)
+  }
+  redirect('/communication')
+  // Legacy code below kept for reference but no longer executed
+  const authClient = await (null as any)
   const { data: { user } } = await authClient.auth.getUser()
   if (!user) redirect('/auth/login')
 
