@@ -19,55 +19,106 @@ export default async function ChatbotConfigPage() {
 
   if (!specialist) redirect('/onboarding')
 
-  const { data: config } = await db
-    .from('chatbot_configs')
-    .select('*')
-    .eq('specialist_id', specialist.id)
-    .single()
+  const [configRes, faqsRes] = await Promise.all([
+    db.from('chatbot_configs').select('*').eq('specialist_id', specialist.id).single(),
+    db.from('chatbot_faqs').select('*').eq('specialist_id', specialist.id).order('sort_order'),
+  ])
 
-  const { data: faqs } = await db
-    .from('chatbot_faqs')
-    .select('*')
-    .eq('specialist_id', specialist.id)
-    .order('sort_order')
+  const config   = configRes.data
+  const faqs     = faqsRes.data || []
+  const faqCount = faqs.length
+  const isLive   = config?.is_live ?? false
 
-  const faqCount   = (faqs || []).length
-  const isActive   = config?.is_active ?? false
-  const botScore   = isActive
-    ? Math.min(100, 40 + faqCount * 5 + (config?.persona_name ? 10 : 0) + (config?.welcome_message ? 10 : 0))
-    : faqCount > 0 ? 20 : 0
+  // Bot readiness score: weighted sum of completeness factors
+  const hasClinicInfo = !!(config?.clinic_name && config?.address)
+  const hasFees       = !!(config?.fee_consultation)
+  const hasTimings    = !!(config?.timings && Object.keys(config.timings).length > 0)
+  const hasEscalation = !!(config?.escalation_mobile)
+  const faqScore      = Math.min(faqCount * 4, 40) // Up to 40 points for FAQs (10 FAQs = max)
+
+  const botScore = isLive
+    ? Math.min(100,
+        (hasClinicInfo ? 15 : 0) +
+        (hasFees       ? 10 : 0) +
+        (hasTimings    ? 10 : 0) +
+        (hasEscalation ? 10 : 0) +
+        faqScore +
+        15 // bonus for being live
+      )
+    : Math.min(85, // cap at 85 until actually live
+        (hasClinicInfo ? 15 : 0) +
+        (hasFees       ? 10 : 0) +
+        (hasTimings    ? 10 : 0) +
+        (hasEscalation ? 10 : 0) +
+        faqScore
+      )
 
   const insightData: InsightData = {
-    moduleTitle: 'Patient Chatbot',
-    score: botScore,
-    scoreLabel: 'Bot Resolution Rate',
-    scoreColor: botScore >= 70 ? 'green' : botScore >= 40 ? 'amber' : 'red',
+    moduleTitle:  'Patient Chatbot',
+    score:        botScore,
+    scoreLabel:   'Bot Readiness Score',
+    scoreColor:   botScore >= 70 ? 'green' : botScore >= 40 ? 'amber' : 'red',
     insights: [
-      !isActive
-        ? { text: 'Chatbot is inactive. Activate it to automate patient enquiries 24/7.', severity: 'critical' as const }
-        : { text: 'Chatbot is live and handling patient enquiries automatically.', severity: 'positive' as const },
+      !isLive
+        ? {
+            text: 'Chatbot is not live. Once configured, activate it to handle patient enquiries 24/7 in 6 languages.',
+            severity: 'critical' as const,
+            cta: { label: 'Go to Deploy tab', href: '/chatbot/config' },
+          }
+        : {
+            text: 'Chatbot is live and responding to patients via WhatsApp and web widget.',
+            severity: 'positive' as const,
+          },
       faqCount < 5
-        ? { text: `Only ${faqCount} FAQ${faqCount !== 1 ? 's' : ''} configured. Add at least 10 for strong bot coverage.`, severity: 'warning' as const }
-        : { text: `${faqCount} FAQs trained. Good coverage for patient queries.`, severity: 'positive' as const },
-      !config?.persona_name
-        ? { text: 'Give your bot a name and persona to build patient trust.', severity: 'info' as const }
-        : { text: `Bot persona "${config.persona_name}" is personalised and on-brand.`, severity: 'positive' as const },
+        ? {
+            text: `Only ${faqCount} FAQ${faqCount !== 1 ? 's' : ''} configured. Add at least 10 — each FAQ reduces patient calls to your staff.`,
+            severity: 'warning' as const,
+            cta: { label: 'Add FAQs now', href: '/chatbot/config' },
+          }
+        : faqCount < 10
+        ? {
+            text: `${faqCount} FAQs added. ${10 - faqCount} more will maximise bot resolution rate.`,
+            severity: 'info' as const,
+          }
+        : {
+            text: `${faqCount} FAQs trained — strong coverage. Bot handles most patient queries without staff.`,
+            severity: 'positive' as const,
+          },
+      !hasEscalation
+        ? {
+            text: 'Set an escalation mobile number so complex queries route to your coordinator automatically.',
+            severity: 'warning' as const,
+            cta: { label: 'Add escalation contact', href: '/chatbot/config' },
+          }
+        : {
+            text: 'Escalation configured — complex queries route to your coordinator on WhatsApp automatically.',
+            severity: 'positive' as const,
+          },
     ],
-    benchmark: `Specialists with active chatbots resolve 67% of patient queries without staff intervention.`,
-    cta:          { label: isActive ? 'Manage chatbot' : 'Activate chatbot', href: '/chatbot/config' },
-    secondaryCta: { label: 'Add more FAQs', href: '/chatbot/config' },
+    benchmark:    'Specialists with active chatbots resolve 67% of patient queries without staff intervention.',
+    cta:          { label: isLive ? 'Manage chatbot' : 'Activate chatbot', href: '/chatbot/config' },
+    secondaryCta: { label: 'Add more FAQs',  href: '/chatbot/config' },
   }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.clincollab.com'
 
   return (
     <AppLayout
-      specialist={{ id: specialist.id, name: specialist.name, specialty: specialist.specialty, role: specialist.role }}
+      specialist={{
+        id:        specialist.id,
+        name:      specialist.name,
+        specialty: specialist.specialty,
+        role:      specialist.role,
+      }}
       insightData={insightData}
     >
       <ChatbotConfigClient
         initialConfig={config}
-        initialFaqs={faqs || []}
+        initialFaqs={faqs}
         specialistName={specialist.name}
         specialistSpecialty={specialist.specialty}
+        specialistId={specialist.id}
+        appUrl={appUrl}
       />
     </AppLayout>
   )

@@ -17,12 +17,21 @@ const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
 
 // ── Safety constants ────────────────────────────────
 const EMERGENCY_KEYWORDS = [
+  // English
   'chest pain', 'chest tightness', 'heart attack', 'cardiac arrest',
   'can\'t breathe', 'cannot breathe', 'difficulty breathing', 'breathless',
   'collapsed', 'unconscious', 'not responding', 'seizure', 'stroke',
   'heavy bleeding', 'severe pain', 'emergency', 'ambulance',
-  'सीने में दर्द', 'सांस नहीं', // Hindi
-  'గుండె నొప్పి', 'శ్వాస తీసుకోలేను', // Telugu
+  // Hindi (हिंदी)
+  'सीने में दर्द', 'सांस नहीं', 'दिल का दौरा', 'बेहोश', 'एम्बुलेंस', 'आपातकाल', 'भारी रक्तस्राव',
+  // Telugu (తెలుగు)
+  'గుండె నొప్పి', 'శ్వాస తీసుకోలేను', 'అత్యవసర', 'అంబులెన్స్', 'స్పృహ కోల్పోయారు',
+  // Kannada (ಕನ್ನಡ)
+  'ಎದೆ ನೋವು', 'ಉಸಿರಾಟ ತೊಂದರೆ', 'ತುರ್ತು', 'ಆಂಬ್ಯುಲೆನ್ಸ್', 'ಎದೆ ಬಿಗಿ', 'ಎದೆ ಒತ್ತಡ',
+  // Marathi (मराठी)
+  'छातीत दुखणे', 'श्वास घेणे कठीण', 'तातडीचे', 'रुग्णवाहिका', 'हृदयविकाराचा झटका', 'बेशुद्ध',
+  // Bengali (বাংলা)
+  'বুকে ব্যথা', 'শ্বাস নিতে পারছি না', 'জরুরি', 'অ্যাম্বুলেন্স', 'হার্ট অ্যাটাক', 'অজ্ঞান',
 ]
 
 const CLINICAL_ADVICE_KEYWORDS = [
@@ -121,15 +130,21 @@ Timings: ${dayTimings}
 ${config.feeConsultation ? `Consultation fee: ₹${config.feeConsultation}` : ''}
 ${config.feeFollowup ? `Follow-up fee: ₹${config.feeFollowup}` : ''}
 ${procedureSection}
-Languages: ${config.languages?.join(', ') || 'English'}
 ${faqSection}
 
 YOUR ROLE:
 - Help patients with clinic information, appointment booking, and general non-clinical queries
-- Respond in the same language the patient uses (English, Hindi, or Telugu)
 - Be warm, clear, and professional — like a helpful clinic receptionist
 - Keep responses concise — 2-4 sentences maximum for most answers
 - For appointment booking, collect: patient name, mobile number, reason for visit, preferred date
+
+LANGUAGE RULES (critical — follow exactly):
+- Detect the patient's language from their message and respond in that SAME language
+- Supported: English, Hindi (हिंदी), Telugu (తెలుగు), Kannada (ಕನ್ನಡ), Marathi (मराठी), Bengali (বাংলা)
+- If patient writes in Hinglish, Tanglish, or any regional-English mix — respond in their regional language
+- NEVER ask patients to write in English — always accommodate their language
+- NEVER translate their query to English internally — respond directly in detected language
+- Common words like "appointment", "doctor", "fees" in an otherwise regional message means respond in that regional language
 
 STRICT RULES — NEVER VIOLATE:
 1. NEVER provide medical advice, diagnosis, or interpret test results
