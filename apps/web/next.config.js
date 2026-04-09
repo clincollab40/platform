@@ -21,11 +21,40 @@ const nextConfig = {
       {
         source: '/(.*)',
         headers: [
-          { key: 'X-Frame-Options', value: 'DENY' },
-          { key: 'X-Content-Type-Options', value: 'nosniff' },
-          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+          // Security headers
+          { key: 'X-Frame-Options',           value: 'DENY' },
+          { key: 'X-Content-Type-Options',    value: 'nosniff' },
+          { key: 'Referrer-Policy',           value: 'strict-origin-when-cross-origin' },
+          { key: 'Permissions-Policy',        value: 'camera=(), microphone=(), geolocation=()' },
+          // HSTS — 1 year, include subdomains.
+          // NOTE: intentionally NOT adding preload until the site is fully stable.
+          // preload submits to browser vendor lists and is very hard to reverse.
+          // Once you are confident the site is stable for 6+ months, add:
+          //   value: 'max-age=31536000; includeSubDomains; preload'
+          // and submit to https://hstspreload.org
+          {
+            key: 'Strict-Transport-Security',
+            value: 'max-age=31536000; includeSubDomains',
+          },
         ],
+      },
+    ]
+  },
+  async redirects() {
+    return [
+      // Redirect bare apex domain to app subdomain (canonical URL)
+      {
+        source: '/:path*',
+        has: [{ type: 'host', value: 'clincollab.com' }],
+        destination: 'https://app.clincollab.com/:path*',
+        permanent: true,
+      },
+      // Redirect www to app subdomain (canonical URL)
+      {
+        source: '/:path*',
+        has: [{ type: 'host', value: 'www.clincollab.com' }],
+        destination: 'https://app.clincollab.com/:path*',
+        permanent: true,
       },
     ]
   },
