@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-export const dynamic = 'force-dynamic'
+export const dynamic    = 'force-dynamic'
+export const maxDuration = 60   // Vercel Hobby max — keeps function alive until pipeline completes
+
 import { createClient } from '@supabase/supabase-js'
 
 /**
@@ -26,11 +28,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'requestId required' }, { status: 400 })
   }
 
-  // Acknowledge immediately
-  const bg = runPipeline(requestId)
-  bg.catch(e => console.error('[/api/content] Pipeline error:', e))
+  // IMPORTANT: Do NOT fire-and-forget here. Vercel kills the function as soon as a
+  // response is sent, so the pipeline would die mid-execution. We await it fully
+  // within maxDuration=60s. The caller (dispatchAsync) doesn't await this response
+  // so this doesn't block the user — their UI polls the DB independently.
+  await runPipeline(requestId).catch(e => console.error('[/api/content] Pipeline error:', e))
 
-  return NextResponse.json({ accepted: true, requestId }, { status: 202 })
+  return NextResponse.json({ accepted: true, requestId })
 }
 
 async function runPipeline(requestId: string) {
@@ -59,7 +63,8 @@ async function runPipeline(requestId: string) {
     )
 
     const specialist = req.specialists as any
-    const result = await runContentPipeline({
+    // Files are generated on-demand via /api/content/generate (no pre-generation needed)
+    await runContentPipeline({
       requestId,
       specialistId:         specialist.id,
       specialistName:       specialist.name,
@@ -70,14 +75,6 @@ async function runPipeline(requestId: string) {
       depth:                req.depth,
       specialInstructions:  req.special_instructions,
     })
-
-    // Upload files to Supabase Storage
-    if (result.pptxBuffer) {
-      await uploadFile(sc, requestId, specialist.id, result.pptxBuffer, result.pptxFilename, 'pptx')
-    }
-    if (result.docxBuffer) {
-      await uploadFile(sc, requestId, specialist.id, result.docxBuffer, result.docxFilename, 'docx')
-    }
 
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error'

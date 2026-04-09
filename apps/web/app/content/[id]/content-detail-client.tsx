@@ -83,15 +83,24 @@ export default function ContentDetailClient({ request, traces: initialTraces, sp
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
 
-  const [traces,    setTraces]    = useState<Trace[]>(initialTraces)
-  const [reqStatus, setReqStatus] = useState(request.status)
-  const [activeTab, setActiveTab] = useState<'progress'|'content'|'sources'|'references'|'download'>('progress')
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editText,  setEditText]  = useState('')
-  const [showTier2, setShowTier2] = useState(true)
-  const [generating, setGenerating] = useState<'pptx'|'docx'|null>(null)
-  const [showNotes, setShowNotes] = useState<string | null>(null)
-  const [copiedRef, setCopiedRef] = useState(false)
+  const [traces,      setTraces]      = useState<Trace[]>(initialTraces)
+  const [reqStatus,   setReqStatus]   = useState(request.status)
+  const [activeTab,   setActiveTab]   = useState<'progress'|'content'|'sources'|'references'|'download'>('progress')
+  const [editingId,   setEditingId]   = useState<string | null>(null)
+  const [editText,    setEditText]    = useState('')
+  const [showTier2,   setShowTier2]   = useState(true)
+  const [generating,  setGenerating]  = useState<'pptx'|'docx'|null>(null)
+  const [showNotes,   setShowNotes]   = useState<string | null>(null)
+  const [copiedRef,   setCopiedRef]   = useState(false)
+  const [startedAt]                   = useState<number>(() => Date.now())
+  const [elapsedSec,  setElapsedSec]  = useState(0)
+
+  // Track elapsed time while processing so user knows what's happening
+  useEffect(() => {
+    if (!isProcessing(reqStatus)) return
+    const timer = setInterval(() => setElapsedSec(Math.floor((Date.now() - startedAt) / 1000)), 1000)
+    return () => clearInterval(timer)
+  }, [reqStatus, startedAt])
 
   const sections = ((request.content_sections || []) as Section[])
     .sort((a, b) => a.sort_order - b.sort_order)
@@ -291,10 +300,27 @@ export default function ContentDetailClient({ request, traces: initialTraces, sp
         {activeTab === 'progress' && (
           <div className="bg-white border border-navy-800/8 rounded-2xl overflow-hidden">
             {traces.length === 0 && isProcessing(reqStatus) && (
-              <div className="text-center py-10">
-                <div className="w-8 h-8 border-2 border-navy-800/15 border-t-navy-800 rounded-full animate-spin mx-auto mb-3"/>
-                <div className="text-sm text-navy-800/50">Initialising research agent...</div>
-                <div className="text-xs text-navy-800/30 mt-1">Searching PubMed, ACC, ESC, NEJM</div>
+              <div className="text-center py-10 px-6">
+                {elapsedSec < 90 ? (
+                  <>
+                    <div className="w-8 h-8 border-2 border-navy-800/15 border-t-navy-800 rounded-full animate-spin mx-auto mb-3"/>
+                    <div className="text-sm text-navy-800/60 font-medium">Starting research agent…</div>
+                    <div className="text-xs text-navy-800/30 mt-1">Searching PubMed, ACC, ESC, NEJM</div>
+                    <div className="text-2xs text-navy-800/25 mt-2">{elapsedSec}s elapsed · usually starts within 15s</div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-3xl mb-3">⚠️</div>
+                    <div className="text-sm font-semibold text-navy-800 mb-1">Research is taking longer than expected</div>
+                    <div className="text-xs text-navy-800/50 leading-relaxed mb-4 max-w-xs mx-auto">
+                      The pipeline may have timed out. This can happen with complex topics on the first run. Please go back and try again — it often succeeds on the second attempt.
+                    </div>
+                    <button onClick={() => router.push('/content')}
+                      className="bg-navy-800 text-white text-sm font-medium px-5 py-2.5 rounded-xl hover:bg-navy-900 transition-colors active:scale-95">
+                      Go back and retry
+                    </button>
+                  </>
+                )}
               </div>
             )}
 

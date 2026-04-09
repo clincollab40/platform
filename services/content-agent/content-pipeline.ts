@@ -172,10 +172,13 @@ async function trace(
   }
 }
 
-// ── Groq helper — unwraps and returns T or throws ─────────────
+// ── Groq helper — with 12s per-call timeout to prevent hanging ─
 async function callGroq<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try {
-    return await fn()
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Groq call timed out after 12s')), 12000)
+    )
+    return await Promise.race([fn(), timeoutPromise])
   } catch (e) {
     console.error('[M10:callGroq] Error:', e instanceof Error ? e.message : String(e))
     return fallback
@@ -210,9 +213,9 @@ Return ONLY valid JSON: {"queries": ["query 1", "query 2", ...]}`
 
   return callGroq(async () => {
     const completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: 'llama-3.1-8b-instant',   // fast model — decomposition doesn't need 70b
       temperature: 0.1,
-      max_tokens: 600,
+      max_tokens: 400,
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: 'Return only valid JSON with key "queries" containing an array of search query strings.' },
@@ -365,8 +368,7 @@ PERMITTED CLAIMS FRAMEWORK — STRICTLY FOLLOW:
 ✗ NEVER make clinical recommendations not directly backed by the evidence above
 ✗ NEVER include any claim without a [REF-N] citation marker
 
-For each section, the content should be 150–250 words for standard depth.
-Speaker notes (for PPTX) should be 250–350 words with clinical context and teaching points.
+For each section write 120–180 words of content only. Do NOT write speaker notes — they are generated separately.
 
 Return ONLY valid JSON:
 {
@@ -374,11 +376,10 @@ Return ONLY valid JSON:
     {
       "title": "section title",
       "sectionType": "intro|evidence|guideline|case|conclusion",
-      "content": "section content with [REF-N] markers",
-      "speakerNotes": "expanded clinical speaker notes for PPTX",
+      "content": "section content 120-180 words with [REF-N] citation markers",
       "evidenceLevel": "strong|moderate|guideline",
-      "evidenceSummary": "e.g. Based on 3 sources: NEJM 2022 [REF-1], ACC Guidelines 2023 [REF-3], JACC 2022 [REF-5]",
-      "citationNums": [1, 3, 5]
+      "evidenceSummary": "e.g. Based on: NEJM 2022 [REF-1], ACC 2023 [REF-3]",
+      "citationNums": [1, 3]
     }
   ]
 }`
@@ -387,7 +388,7 @@ Return ONLY valid JSON:
     const completion = await groq.chat.completions.create({
       model: 'llama-3.3-70b-versatile',
       temperature: 0.15,
-      max_tokens: 4000,
+      max_tokens: 2000,   // reduced: no speaker notes, 120-180 words × 8 sections ≈ 1600 tokens
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: 'You are a senior medical writer. Generate only evidence-backed content. Return only JSON. Never add content without a [REF-N] citation.' },
@@ -721,15 +722,18 @@ export async function runContentPipeline(
       `Decomposed into ${subtopics.length} research subtopics`, 'completed',
       subtopics.slice(0, 3).join(' | '), Date.now() - t0)
 
-    // ── Step 2: Evidence generation ────────────────────────────
-    const allEvidence: EvidenceBlock[] = []
-    for (let i = 0; i < subtopics.length; i++) {
-      await trace(sc, request.requestId, request.specialistId, 2 + i, 'tier1_search',
-        `Gathering evidence (${i + 1}/${subtopics.length})...`, 'running', subtopics[i])
+    // ── Step 2: Evidence generation (parallel) ────────────────────
+    // All subtopics searched simultaneously — reduces 5×sequential to ~1× parallel time
+    await trace(sc, request.requestId, request.specialistId, 2, 'tier1_search',
+      `Searching ${subtopics.length} research areas simultaneously...`, 'running',
+      subtopics.slice(0, 3).join(' | ') + (subtopics.length > 3 ? '...' : ''))
 
-      const blocks = await generateEvidenceForSubtopic(subtopics[i], request.topic, request.specialistSpecialty)
-      allEvidence.push(...blocks)
-    }
+    const evidenceArrays = await Promise.all(
+      subtopics.map(subtopic =>
+        generateEvidenceForSubtopic(subtopic, request.topic, request.specialistSpecialty)
+      )
+    )
+    const allEvidence: EvidenceBlock[] = evidenceArrays.flat()
 
     // Deduplicate by sourceUrl
     const seen = new Set<string>()
@@ -814,26 +818,11 @@ export async function runContentPipeline(
       }).catch(err => console.error('[M10] section insert error:', err))
     }
 
-    // ── Step 5: Generate files ──────────────────────────────────
-    await trace(sc, request.requestId, request.specialistId, 23, 'file_generation', 'Preparing your files...', 'running')
-
+    // ── Step 5: Mark complete ───────────────────────────────────
+    // NOTE: File generation (PPTX/DOCX) is done on-demand via /api/content/generate.
+    // Generating files here would add 10-20s and risk hitting Vercel's 60s limit.
     let pptxBuffer: Buffer | null = null, pptxFilename = ''
     let docxBuffer: Buffer | null = null, docxFilename = ''
-
-    const pptxTypes = ['cme_presentation', 'grand_rounds']
-
-    try {
-      if (pptxTypes.includes(request.contentType)) {
-        const pptx = await generatePPTX(sections, dedupedEvidence, request, includeTier2, request.requestId, request.specialistId)
-        pptxBuffer = pptx.buffer; pptxFilename = pptx.filename
-      }
-      const docx = await generateDOCX(sections, dedupedEvidence, request, includeTier2)
-      docxBuffer = docx.buffer; docxFilename = docx.filename
-    } catch (fileErr) {
-      log('error', 'M10', 'file_generation_error', { requestId: request.requestId, error: String(fileErr) })
-    }
-
-    // ── Mark complete ───────────────────────────────────────────
     const requiresReview = request.contentType === 'patient_education'
     await sc.from('content_requests').update({
       status:                    'completed',

@@ -172,9 +172,16 @@ export default function ContentListClient({ specialist, requests, analytics }: {
     setSuggestions([])
     try {
       const r = await suggestTopicAnglesAction(topic.trim(), selectedType)
-      if (r.ok && Array.isArray(r.value)) setSuggestions(r.value)
-    } catch {}
-    setLoadingSugg(false)
+      if (r.ok && Array.isArray(r.value) && r.value.length > 0) {
+        setSuggestions(r.value)
+      } else {
+        toast.error('Could not generate suggestions — try rephrasing your topic')
+      }
+    } catch {
+      toast.error('Could not reach AI service — check connection and retry')
+    } finally {
+      setLoadingSugg(false)
+    }
   }
 
   async function handleSubmit() {
