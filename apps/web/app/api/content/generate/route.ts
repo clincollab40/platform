@@ -161,17 +161,20 @@ export async function POST(request: NextRequest) {
 // The full pipeline is only imported when the generate endpoint is called
 
 async function importGenerators() {
-  // Dynamic import of pipeline module — isolated from route startup
-  const pipeline = await import(
-    '../../../../../../services/content-agent/content-pipeline'
-  ) as any
+  // Try dynamic import of pipeline module — wrap in try-catch so module-not-found
+  // errors on Vercel fall through to the inline generators instead of throwing
+  try {
+    const pipeline = await import(
+      '../../../../../../services/content-agent/content-pipeline'
+    ) as any
 
-  // Extract just the two generator functions
-  if (pipeline.generatePPTX && pipeline.generateDOCX) {
-    return { generatePPTX: pipeline.generatePPTX, generateDOCX: pipeline.generateDOCX }
+    if (pipeline.generatePPTX && pipeline.generateDOCX) {
+      return { generatePPTX: pipeline.generatePPTX, generateDOCX: pipeline.generateDOCX }
+    }
+  } catch {
+    // Pipeline module not present — use inline generators
   }
 
-  // Fallback: inline lightweight generators if exports not available
   return {
     generatePPTX: inlinePPTX,
     generateDOCX: inlineDOCX,
