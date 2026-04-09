@@ -85,6 +85,7 @@ export default function ContentDetailClient({ request, traces: initialTraces, sp
 
   const [traces,      setTraces]      = useState<Trace[]>(initialTraces)
   const [reqStatus,   setReqStatus]   = useState(request.status)
+  const [errorMsg,    setErrorMsg]    = useState<string>(request.error_message || '')
   const [activeTab,   setActiveTab]   = useState<'progress'|'content'|'sources'|'references'|'download'>('progress')
   const [editingId,   setEditingId]   = useState<string | null>(null)
   const [editText,    setEditText]    = useState('')
@@ -130,6 +131,7 @@ export default function ContentDetailClient({ request, traces: initialTraces, sp
       const data = await res.json()
       if (data.traces?.length > 0) setTraces(prev => [...prev, ...data.traces])
       if (data.status) setReqStatus(data.status)
+      if (data.summary?.errorMessage) setErrorMsg(data.summary.errorMessage)
       if (data.status === 'completed') {
         setActiveTab('content')
         router.refresh()
@@ -364,10 +366,17 @@ export default function ContentDetailClient({ request, traces: initialTraces, sp
             {reqStatus === 'failed' && (
               <div className="m-4 bg-red-50 border border-red-200/60 rounded-xl p-4 text-center">
                 <div className="text-sm font-semibold text-red-700 mb-1">Research failed</div>
-                <div className="text-xs text-red-600/70 mb-3 leading-relaxed">{request.error_message || 'An error occurred during research. The topic may be too broad or the sources unavailable.'}</div>
-                <button onClick={() => router.push('/content')} className="text-sm text-navy-800 font-medium border border-navy-800/15 px-4 py-2 rounded-xl hover:bg-navy-50 transition-colors">
-                  Try a different topic
-                </button>
+                <div className="text-xs text-red-600/70 mb-3 leading-relaxed">
+                  {errorMsg || 'The research pipeline encountered an error. Please retry — it usually succeeds on the second attempt.'}
+                </div>
+                <div className="flex gap-2 justify-center">
+                  <button onClick={() => router.push('/content')} className="text-sm text-navy-800 font-medium border border-navy-800/15 px-4 py-2 rounded-xl hover:bg-navy-50 transition-colors">
+                    Try a different topic
+                  </button>
+                  <button onClick={() => window.location.reload()} className="text-sm bg-navy-800 text-white font-medium px-4 py-2 rounded-xl hover:bg-navy-900 transition-colors">
+                    Retry this topic
+                  </button>
+                </div>
               </div>
             )}
 

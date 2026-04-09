@@ -193,8 +193,8 @@ async function decomposeTopicToSubtopics(
   depth: string,
   specialInstructions: string | null
 ): Promise<string[]> {
-  // Fewer subtopics = fewer Groq calls = avoids rate limiting on Vercel serverless
-  const count = depth === 'overview' ? 4 : depth === 'standard' ? 5 : 8
+  // Fewer subtopics = fewer parallel Groq calls = faster pipeline completion
+  const count = depth === 'overview' ? 3 : depth === 'standard' ? 4 : 6
 
   const prompt = `You are a senior medical research librarian specialising in ${specialty}.
 Break down this clinical topic into ${count} specific, searchable research subtopics.
@@ -273,9 +273,9 @@ Return ONLY valid JSON:
 
   return callGroq(async () => {
     const completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: 'llama-3.1-8b-instant',   // fast model — 5× faster than 70b, reduces timeout risk
       temperature: 0.05,
-      max_tokens: 900,   // reduced from 2000 to avoid rate limiting (5 subtopics × 900 = 4500 total)
+      max_tokens: 900,
       response_format: { type: 'json_object' },
       messages: [
         {
@@ -386,9 +386,9 @@ Return ONLY valid JSON:
 
   return callGroq(async () => {
     const completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: 'llama-3.1-8b-instant',   // fast model — 5× faster than 70b
       temperature: 0.15,
-      max_tokens: 2000,   // reduced: no speaker notes, 120-180 words × 8 sections ≈ 1600 tokens
+      max_tokens: 2000,
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: 'You are a senior medical writer. Generate only evidence-backed content. Return only JSON. Never add content without a [REF-N] citation.' },
@@ -444,7 +444,8 @@ Return ONLY valid JSON:
 export function formatVancouverCitation(e: EvidenceBlock, num: number, tier: 'tier1' | 'tier2'): string {
   if (tier === 'tier2') {
     const typeLabel = e.trialId ? 'Registered Trial' : 'Conference Abstract / Preprint'
-    return `${num}. ${e.authors || 'Author(s) unknown'}. ${e.sourceTitle || 'Untitled'}. ${e.journal || 'ClinicalTrials.gov / Conference'}. ${e.year || 'n.d.'}. [${typeLabel}]. ${e.trialId ? 'Trial ID: ' + e.trialId + '. ' : ''}Available from: ${e.sourceUrl}`
+    const url = e.sourceUrl || ''
+    return `${num}. ${e.authors || 'Author(s) unknown'}. ${e.sourceTitle || 'Untitled'}. ${e.journal || 'ClinicalTrials.gov / Conference'}. ${e.year || 'n.d.'}. [${typeLabel}]. ${e.trialId ? 'Trial ID: ' + e.trialId + '. ' : ''}${url ? 'Available from: ' + url : ''}`
   }
   const parts = [
     `${num}.`,
@@ -453,7 +454,7 @@ export function formatVancouverCitation(e: EvidenceBlock, num: number, tier: 'ti
     e.journal ? e.journal + '.' : null,
     e.year ? `${e.year};` : null,
     e.doi ? `doi:${e.doi}.` : null,
-    `Available from: ${e.sourceUrl}`,
+    e.sourceUrl ? `Available from: ${e.sourceUrl}` : null,
   ].filter(Boolean)
   return parts.join(' ')
 }
@@ -735,10 +736,10 @@ export async function runContentPipeline(
     )
     const allEvidence: EvidenceBlock[] = evidenceArrays.flat()
 
-    // Deduplicate by sourceUrl
+    // Deduplicate by sourceUrl — null-safe: Groq sometimes returns null for sourceUrl
     const seen = new Set<string>()
     const dedupedEvidence = allEvidence.filter(e => {
-      const key = e.sourceUrl.split('?')[0]
+      const key = (e.sourceUrl || e.sourceTitle || Math.random().toString()).split('?')[0]
       if (seen.has(key)) return false
       seen.add(key)
       return true
