@@ -7,7 +7,6 @@ import { toast } from 'sonner'
 import {
   editSectionAction,
   approvePatientEducationAction,
-  generateFileAction,
 } from '@/app/actions/content'
 import { CONTENT_TYPES } from '../content-list-client'
 
@@ -151,23 +150,38 @@ export default function ContentDetailClient({ request, traces: initialTraces, sp
   }
 
   async function handleDownload(format: 'pptx' | 'docx') {
-    const existing = outputs.find(o => o.format === format && o.include_tier2 === showTier2)
-    if (existing?.file_url) {
-      window.open(existing.file_url, '_blank')
-      return
-    }
     setGenerating(format)
-    startTransition(async () => {
-      const r = await generateFileAction(request.id, format, showTier2)
-      setGenerating(null)
-      if (!r.ok) {
-        toast.error(r.error || 'File generation failed — please try again')
+    try {
+      const res = await fetch('/api/content/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requestId: request.id, format, includeTier2: showTier2, specialistId: specialist.id }),
+      })
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '')
+        toast.error(errText || 'File generation failed — please try again')
+        setGenerating(null)
         return
       }
-      toast.success(`${format.toUpperCase()} ready — opening download`)
-      window.open(r.value.fileUrl, '_blank')
+      const blob = await res.blob()
+      const disposition = res.headers.get('Content-Disposition') || ''
+      const match = disposition.match(/filename="([^"]+)"/)
+      const filename = match?.[1] ?? `ClinCollab_${format}_${Date.now()}.${format}`
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      toast.success(`${format.toUpperCase()} downloaded successfully`)
       router.refresh()
-    })
+    } catch (err: any) {
+      toast.error(err?.message || 'Download failed — please try again')
+    } finally {
+      setGenerating(null)
+    }
   }
 
   async function copyAllReferences() {
@@ -797,7 +811,7 @@ export default function ContentDetailClient({ request, traces: initialTraces, sp
                   </button>
 
                   <div className="text-2xs text-navy-800/35 text-center leading-relaxed pt-1">
-                    Files are generated fresh from your content · Valid download link for 7 days · Includes all citations
+                    Generated fresh from your content · Includes all citations and references
                   </div>
                 </div>
 

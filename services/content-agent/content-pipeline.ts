@@ -536,12 +536,9 @@ export async function generatePPTX(
     { x: 0.5, y: 1.2, w: 9.0, h: 3.5, fontSize: 11, color: '374151', wrap: true }
   )
 
+  const arrayBuffer = await pptx.write({ outputType: 'arraybuffer' })
+  const buffer = Buffer.from(arrayBuffer)
   const filename = `ClinCollab_${request.contentType}_${Date.now()}.pptx`
-  const tmpPath = `/tmp/${filename}`
-  await pptx.writeFile({ fileName: tmpPath })
-  const fs = require('fs')
-  const buffer = fs.readFileSync(tmpPath)
-  fs.unlinkSync(tmpPath)
   return { buffer, filename }
 }
 
