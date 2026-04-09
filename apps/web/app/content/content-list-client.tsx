@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { createContentRequestAction } from '@/app/actions/content'
+import { createContentRequestAction, suggestTopicAnglesAction } from '@/app/actions/content'
 
 type Request = {
   id: string; topic: string; content_type: string; status: string
@@ -150,6 +150,8 @@ export default function ContentListClient({ specialist, requests, analytics }: {
   const [audience,     setAudience]     = useState('specialist_peers')
   const [depth,        setDepth]        = useState('standard')
   const [instructions, setInstructions] = useState('')
+  const [suggestions,  setSuggestions]  = useState<string[]>([])
+  const [loadingSugg,  setLoadingSugg]  = useState(false)
   const [typeFilter,   setTypeFilter]   = useState('all')
   const [timePeriod,   setTimePeriod]   = useState<'month'|'ytd'|'all'>('month')
 
@@ -161,6 +163,18 @@ export default function ContentListClient({ specialist, requests, analytics }: {
   function resetForm() {
     setStep(1); setSelectedType(''); setTopic('')
     setAudience('specialist_peers'); setDepth('standard'); setInstructions('')
+    setSuggestions([]); setLoadingSugg(false)
+  }
+
+  async function fetchSuggestions() {
+    if (!topic.trim() || topic.length < 10 || loadingSugg) return
+    setLoadingSugg(true)
+    setSuggestions([])
+    try {
+      const r = await suggestTopicAnglesAction(topic.trim(), selectedType)
+      if (r.ok && Array.isArray(r.value)) setSuggestions(r.value)
+    } catch {}
+    setLoadingSugg(false)
   }
 
   async function handleSubmit() {
@@ -569,7 +583,7 @@ export default function ContentListClient({ specialist, requests, analytics }: {
                   <div>
                     <label className="text-2xs font-semibold text-navy-800/50 uppercase tracking-wider block mb-1.5">Your topic</label>
                     <textarea
-                      value={topic} onChange={e => setTopic(e.target.value)}
+                      value={topic} onChange={e => { setTopic(e.target.value); if (suggestions.length > 0) setSuggestions([]) }}
                       placeholder={
                         selectedType === 'cme_presentation'   ? 'e.g. PCI outcomes in diabetic patients — ACC 2024 trial data' :
                         selectedType === 'grand_rounds'        ? 'e.g. Evolving role of FFR-guided PCI in multivessel disease' :
@@ -589,6 +603,30 @@ export default function ContentListClient({ specialist, requests, analytics }: {
                       <span className="text-2xs text-navy-800/35">Be specific — include procedure names, trial names, or guideline year</span>
                       <span className={`text-2xs ${topic.length > 450 ? 'text-red-500' : 'text-navy-800/30'}`}>{topic.length}/500</span>
                     </div>
+                  </div>
+
+                  {/* AI angle suggestions */}
+                  <div>
+                    <button
+                      onClick={fetchSuggestions}
+                      disabled={topic.length < 10 || loadingSugg}
+                      className="flex items-center gap-1.5 text-2xs font-semibold text-navy-800/60 hover:text-navy-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors border border-navy-800/15 hover:border-navy-800/30 px-3 py-1.5 rounded-lg">
+                      {loadingSugg ? (
+                        <span className="w-3 h-3 border border-navy-800/40 border-t-navy-800 rounded-full animate-spin"/>
+                      ) : '✨'}
+                      {loadingSugg ? 'Finding angles…' : 'Suggest focused angles'}
+                    </button>
+                    {suggestions.length > 0 && (
+                      <div className="mt-2 space-y-1.5">
+                        <div className="text-2xs text-navy-800/40">Tap to use as your topic:</div>
+                        {suggestions.map((s, i) => (
+                          <button key={i} onClick={() => { setTopic(s); setSuggestions([]) }}
+                            className="w-full text-left text-2xs text-navy-800 bg-navy-50 hover:bg-navy-100 border border-navy-800/10 hover:border-navy-800/25 rounded-xl px-3 py-2 transition-all leading-snug active:scale-99">
+                            {s}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {/* Anti-hallucination note */}

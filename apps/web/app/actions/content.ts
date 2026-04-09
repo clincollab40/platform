@@ -45,6 +45,66 @@ function dispatchAsync(requestId: string) {
 }
 
 // ════════════════════════════════════════════════════════════
+// TOPIC ANGLE SUGGESTIONS
+// ════════════════════════════════════════════════════════════
+
+export async function suggestTopicAnglesAction(topic: string, contentType: string) {
+  return boundary('suggest_angles', async () => {
+    await getAuth() // must be logged in
+
+    const groqUrl = 'https://api.groq.com/openai/v1/chat/completions'
+    const apiKey  = process.env.GROQ_API_KEY
+    if (!apiKey) throw new Error('Groq API key not configured')
+
+    const typeLabel: Record<string, string> = {
+      cme_presentation: 'CME Presentation',
+      grand_rounds: 'Grand Rounds',
+      referral_guide: 'Referring Doctor Guide',
+      clinical_protocol: 'Clinical Protocol',
+      conference_abstract: 'Conference Abstract',
+      roundtable_points: 'Roundtable Talking Points',
+      case_discussion: 'Case Discussion',
+      patient_education: 'Patient Education',
+    }
+    const label = typeLabel[contentType] || contentType
+
+    const systemPrompt = `You are a clinical content strategist helping a specialist physician focus their ${label}.
+Given a broad or general clinical topic, suggest 4 specific, evidence-rich angle variations.
+Each suggestion should:
+- Be specific enough to anchor a literature search (e.g. mention a trial, guideline year, procedure, or patient subgroup)
+- Be 60-120 characters (concise enough for a textarea chip)
+- Be clinically distinct from each other
+- NOT be a question — write as a descriptive topic phrase
+Return ONLY a JSON array of 4 strings. No extra text. Example:
+["PCI vs CABG in diabetic multivessel disease — FREEDOM trial 5-year outcomes","Revascularisation strategy in CTO: DECISION-CTO and real-world registry data","FFR-guided PCI in stable CAD — DEFER and FAME 2 landmark trials","Heart team approach for complex CAD — ESC 2023 myocardial revascularisation guidelines"]`
+
+    const res = await fetch(groqUrl, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'llama-3.1-8b-instant',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Topic: "${topic}"\nContent type: ${label}` },
+        ],
+        temperature: 0.7,
+        max_tokens: 400,
+      }),
+    })
+
+    if (!res.ok) throw new Error('Could not reach AI service')
+    const json = await res.json()
+    const text = json.choices?.[0]?.message?.content?.trim() || '[]'
+
+    // Extract JSON array from response (handle if model adds extra text)
+    const match = text.match(/\[[\s\S]*\]/)
+    if (!match) return []
+    const suggestions: string[] = JSON.parse(match[0])
+    return suggestions.slice(0, 4)
+  })
+}
+
+// ════════════════════════════════════════════════════════════
 // CREATE REQUEST
 // ════════════════════════════════════════════════════════════
 

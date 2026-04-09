@@ -190,7 +190,8 @@ async function decomposeTopicToSubtopics(
   depth: string,
   specialInstructions: string | null
 ): Promise<string[]> {
-  const count = depth === 'overview' ? 5 : depth === 'standard' ? 8 : 12
+  // Fewer subtopics = fewer Groq calls = avoids rate limiting on Vercel serverless
+  const count = depth === 'overview' ? 4 : depth === 'standard' ? 5 : 8
 
   const prompt = `You are a senior medical research librarian specialising in ${specialty}.
 Break down this clinical topic into ${count} specific, searchable research subtopics.
@@ -271,7 +272,7 @@ Return ONLY valid JSON:
     const completion = await groq.chat.completions.create({
       model: 'llama-3.3-70b-versatile',
       temperature: 0.05,
-      max_tokens: 2000,
+      max_tokens: 900,   // reduced from 2000 to avoid rate limiting (5 subtopics × 900 = 4500 total)
       response_format: { type: 'json_object' },
       messages: [
         {
