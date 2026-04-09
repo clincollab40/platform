@@ -7,8 +7,16 @@ import { revalidatePath }              from 'next/cache'
 
 type BR<T> = { ok: true; value: T } | { ok: false; error: string }
 async function boundary<T>(name: string, fn: () => Promise<T>): Promise<BR<T>> {
-  try   { return { ok: true, value: await fn() } }
-  catch (e) { console.error(`[M10:${name}]`, e); return { ok: false, error: e instanceof Error ? e.message : String(e) } }
+  try {
+    return { ok: true, value: await fn() }
+  } catch (e: any) {
+    // Re-throw Next.js internal errors (redirect, notFound) — do NOT swallow them
+    if (e?.digest?.startsWith('NEXT_REDIRECT') || e?.digest?.startsWith('NEXT_NOT_FOUND')) throw e
+    // Also re-throw if the error has the redirect symbol (Next.js 14+)
+    if (typeof e === 'object' && e !== null && 'digest' in e) throw e
+    console.error(`[M10:${name}]`, e)
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
 }
 
 async function getAuth() {

@@ -173,12 +173,21 @@ export default function ContentListClient({ specialist, requests, analytics }: {
     if (instructions) fd.set('special_instructions', instructions)
 
     startTransition(async () => {
-      const r = await createContentRequestAction(fd)
-      if (!r.ok) { toast.error(r.error); return }
-      toast.success('Research started — tracking progress now')
-      setShowNew(false)
-      resetForm()
-      router.push(`/content/${r.value.requestId}`)
+      try {
+        const r = await createContentRequestAction(fd)
+        if (!r.ok) { toast.error(r.error || 'Could not start research'); return }
+        toast.success('Research started — tracking progress now')
+        setShowNew(false)
+        resetForm()
+        if (r.value?.requestId) {
+          router.push(`/content/${r.value.requestId}`)
+        } else {
+          toast.error('Unexpected error: no request ID returned')
+        }
+      } catch (err: any) {
+        console.error('[Content] handleSubmit error:', err)
+        toast.error(err?.message || 'Something went wrong — please try again')
+      }
     })
   }
 
