@@ -16,8 +16,16 @@
 import Groq from 'groq-sdk'
 import { createClient } from '@supabase/supabase-js'
 
-// ── Groq client (initialised once per cold start) ──────────────
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
+// ── Groq client factory — lazy, never crashes at module load ───
+let _groq: Groq | null = null
+function getGroq(): Groq {
+  if (!_groq) {
+    const key = process.env.GROQ_API_KEY
+    if (!key) throw new Error('GROQ_API_KEY environment variable is not set')
+    _groq = new Groq({ apiKey: key })
+  }
+  return _groq
+}
 
 function svc() {
   return createClient(
@@ -215,7 +223,7 @@ Rules:
 Return ONLY valid JSON: {"queries": ["query 1", "query 2", ...]}`
 
   const result = await callGroq(async () => {
-    const completion = await groq.chat.completions.create({
+    const completion = await getGroq().chat.completions.create({
       model: 'llama-3.1-8b-instant',
       temperature: 0.1,
       max_tokens: 400,
@@ -274,7 +282,7 @@ Return ONLY valid JSON:
 }`
 
   return callGroq(async () => {
-    const completion = await groq.chat.completions.create({
+    const completion = await getGroq().chat.completions.create({
       model: 'llama-3.1-8b-instant',
       temperature: 0.05,
       max_tokens: 1000,
@@ -364,7 +372,7 @@ Return ONLY valid JSON:
 }`
 
   const result = await callGroq(async () => {
-    const completion = await groq.chat.completions.create({
+    const completion = await getGroq().chat.completions.create({
       model: 'llama-3.1-8b-instant',
       temperature: 0.2,
       max_tokens: 2500,

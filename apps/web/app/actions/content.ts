@@ -263,6 +263,42 @@ export async function createContentRequestAction(formData: FormData) {
 }
 
 // ════════════════════════════════════════════════════════════
+// RETRY FAILED REQUEST
+// ════════════════════════════════════════════════════════════
+
+export async function retryContentRequestAction(requestId: string) {
+  return boundary('retry_request', async () => {
+    const { supabase, specialist } = await getAuth()
+
+    // Verify the request belongs to this specialist and is in a retryable state
+    const { data: req, error } = await supabase
+      .from('content_requests')
+      .select('id, status')
+      .eq('id', requestId)
+      .eq('specialist_id', specialist.id)
+      .single()
+
+    if (error || !req) throw new Error('Request not found')
+    if (!['failed', 'queued'].includes(req.status)) throw new Error('Request is not in a retryable state')
+
+    // Reset to queued so the pipeline picks it up again
+    const { error: updErr } = await supabase
+      .from('content_requests')
+      .update({ status: 'queued', error_message: null, processing_started_at: null, processing_ended_at: null })
+      .eq('id', requestId)
+      .eq('specialist_id', specialist.id)
+
+    if (updErr) throw new Error('Could not reset request status')
+
+    // Re-dispatch to async pipeline
+    dispatchAsync(requestId)
+
+    revalidatePath(`/content/${requestId}`)
+    return { requestId }
+  })
+}
+
+// ════════════════════════════════════════════════════════════
 // READ
 // ════════════════════════════════════════════════════════════
 

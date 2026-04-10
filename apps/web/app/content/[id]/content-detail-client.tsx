@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 import {
   editSectionAction,
   approvePatientEducationAction,
+  retryContentRequestAction,
 } from '@/app/actions/content'
 import { CONTENT_TYPES } from '../content-list-client'
 
@@ -86,6 +87,7 @@ export default function ContentDetailClient({ request, traces: initialTraces, sp
   const [traces,      setTraces]      = useState<Trace[]>(initialTraces)
   const [reqStatus,   setReqStatus]   = useState(request.status)
   const [errorMsg,    setErrorMsg]    = useState<string>(request.error_message || '')
+  const [retrying,    setRetrying]    = useState(false)
   const [activeTab,   setActiveTab]   = useState<'progress'|'content'|'sources'|'references'|'download'>('progress')
   const [editingId,   setEditingId]   = useState<string | null>(null)
   const [editText,    setEditText]    = useState('')
@@ -373,8 +375,24 @@ export default function ContentDetailClient({ request, traces: initialTraces, sp
                   <button onClick={() => router.push('/content')} className="text-sm text-navy-800 font-medium border border-navy-800/15 px-4 py-2 rounded-xl hover:bg-navy-50 transition-colors">
                     Try a different topic
                   </button>
-                  <button onClick={() => window.location.reload()} className="text-sm bg-navy-800 text-white font-medium px-4 py-2 rounded-xl hover:bg-navy-900 transition-colors">
-                    Retry this topic
+                  <button
+                    disabled={retrying}
+                    onClick={async () => {
+                      setRetrying(true)
+                      setErrorMsg('')
+                      setTraces([])
+                      const r = await retryContentRequestAction(request.id)
+                      if (!r.ok) {
+                        toast.error(r.error || 'Could not retry — please try again')
+                        setRetrying(false)
+                      } else {
+                        setReqStatus('queued')
+                        setRetrying(false)
+                      }
+                    }}
+                    className="text-sm bg-navy-800 text-white font-medium px-4 py-2 rounded-xl hover:bg-navy-900 transition-colors disabled:opacity-50"
+                  >
+                    {retrying ? 'Retrying…' : 'Retry this topic'}
                   </button>
                 </div>
               </div>
