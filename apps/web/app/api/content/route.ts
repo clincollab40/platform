@@ -1,19 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+// STATIC import — always bundled by Next.js into the serverless function.
+// Previously this was a dynamic import('../../../../../services/content-agent/content-pipeline')
+// which resolved to a file OUTSIDE apps/web/ — that file does not exist in the
+// Vercel deployment bundle, causing "Cannot find module" → status='failed' on every run.
+import { runContentPipeline } from '@/lib/content-pipeline'
+import { createClient }       from '@supabase/supabase-js'
+
 export const dynamic    = 'force-dynamic'
-export const maxDuration = 60   // Vercel Hobby max — keeps function alive until pipeline completes
+export const maxDuration = 60   // Vercel Hobby plan max
 
-import { createClient } from '@supabase/supabase-js'
+function svc() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } }
+  )
+}
 
-/**
- * POST /api/content
- * Receives requestId, runs content pipeline in isolation.
- * Returns 202 immediately. Pipeline streams progress via DB traces (SSE reads traces).
- *
- * Path: apps/web/app/api/content/route.ts
- * Pipeline: ../../../../../services/content-agent/content-pipeline.ts
- */
+// POST /api/content — trigger pipeline for a queued request
 export async function POST(request: NextRequest) {
+  // Validate internal key
   const key = request.headers.get('x-internal-key') || ''
   if (process.env.INTERNAL_API_KEY && key !== process.env.INTERNAL_API_KEY) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -22,153 +29,90 @@ export async function POST(request: NextRequest) {
   let requestId: string
   try {
     const body = await request.json()
-    requestId = body.requestId
+    requestId  = body.requestId
     if (!requestId) throw new Error('missing requestId')
   } catch {
     return NextResponse.json({ error: 'requestId required' }, { status: 400 })
   }
 
-  // IMPORTANT: Do NOT fire-and-forget here. Vercel kills the function as soon as a
-  // response is sent, so the pipeline would die mid-execution. We await it fully
-  // within maxDuration=60s. The caller (dispatchAsync) doesn't await this response
-  // so this doesn't block the user — their UI polls the DB independently.
-  await runPipeline(requestId).catch(e => console.error('[/api/content] Pipeline error:', e))
+  const sc = svc()
 
-  return NextResponse.json({ accepted: true, requestId })
-}
-
-async function runPipeline(requestId: string) {
-  const sc = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false } }
-  )
-
-  // Load request
+  // Load request — verify it exists and is actionable
   const { data: req } = await sc
     .from('content_requests')
     .select('*, specialists(id, name, specialty)')
-    .eq('id', requestId).single()
+    .eq('id', requestId)
+    .single()
 
-  if (!req || !['queued', 'failed'].includes(req.status)) return
+  if (!req) return NextResponse.json({ error: 'Request not found' }, { status: 404 })
+  if (!['queued', 'failed'].includes(req.status)) {
+    return NextResponse.json({ ok: true, skipped: true })
+  }
+
+  // Mark as started
+  await sc.from('content_requests').update({
+    status: 'decomposing',
+    processing_started_at: new Date().toISOString(),
+    error_message: null,
+  }).eq('id', requestId)
+
+  const specialist = req.specialists as any
 
   try {
-    await sc.from('content_requests').update({
-      status: 'decomposing',
-      processing_started_at: new Date().toISOString(),
-    }).eq('id', requestId)
-
-    const { runContentPipeline } = await import(
-      '../../../../../services/content-agent/content-pipeline'
-    )
-
-    const specialist = req.specialists as any
-    // Files are generated on-demand via /api/content/generate (no pre-generation needed)
+    // AWAITED — Vercel keeps the function alive for maxDuration.
+    // The client polls /api/content (GET) independently for progress.
     await runContentPipeline({
       requestId,
-      specialistId:         specialist.id,
-      specialistName:       specialist.name,
-      specialistSpecialty:  specialist.specialty,
-      topic:                req.topic,
-      contentType:          req.content_type,
-      audience:             req.audience,
-      depth:                req.depth,
-      specialInstructions:  req.special_instructions,
+      specialistId:        specialist.id,
+      specialistName:      specialist.name       || 'Dr. Specialist',
+      specialistSpecialty: specialist.specialty  || 'Clinical Specialist',
+      topic:               req.topic,
+      contentType:         req.content_type,
+      audience:            req.audience          || 'specialist_peers',
+      depth:               req.depth             || 'standard',
+      specialInstructions: req.special_instructions || null,
     })
+
+    return NextResponse.json({ ok: true, requestId })
 
   } catch (error) {
-    const msg = error instanceof Error ? error.message : 'Unknown error'
+    // Pipeline threw — write actual error to DB so UI can display it
+    const msg = error instanceof Error ? error.message : String(error)
     console.error('[/api/content] Pipeline error:', msg)
     await sc.from('content_requests').update({
-      status: 'failed', error_message: msg,
-    }).eq('id', requestId)
+      status: 'failed',
+      error_message: msg,
+    }).eq('id', requestId).catch(() => {})
+
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 })
   }
 }
 
-async function uploadFile(
-  sc: ReturnType<typeof createClient>,
-  requestId: string,
-  specialistId: string,
-  buffer: Buffer,
-  filename: string,
-  format: string
-) {
-  try {
-    const path = `${specialistId}/${requestId}/${filename}`
-    const { data: uploadData, error } = await sc.storage
-      .from('content-outputs')
-      .upload(path, buffer, {
-        contentType: format === 'pptx'
-          ? 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-          : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        upsert: true,
-      })
-
-    if (error) {
-      console.error('[/api/content] Storage upload error:', error.message)
-      // Still save the output record with null URL
-    }
-
-    // Get signed URL (valid 7 days)
-    let fileUrl: string | null = null
-    if (uploadData) {
-      const { data: signedData } = await sc.storage
-        .from('content-outputs')
-        .createSignedUrl(path, 7 * 24 * 3600)
-      fileUrl = signedData?.signedUrl || null
-    }
-
-    await sc.from('content_outputs').insert({
-      request_id:   requestId,
-      specialist_id: specialistId,
-      format,
-      file_name:    filename,
-      file_url:     fileUrl,
-      file_size_kb: Math.round(buffer.length / 1024),
-      include_tier2:true,
-      expires_at:   new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString(),
-    })
-  } catch (e) {
-    console.error('[/api/content] File upload error:', e)
-  }
-}
-
-/**
- * GET /api/content/stream?requestId=xxx
- * Server-Sent Events: streams agent trace updates to client in real time.
- * Client polls this endpoint; server streams new trace records.
- */
+// GET /api/content?requestId=xxx&after=N — polling endpoint for client
 export async function GET(request: NextRequest) {
-  const requestId = new URL(request.url).searchParams.get('requestId')
-  const after     = new URL(request.url).searchParams.get('after') || '0'
+  const { searchParams } = new URL(request.url)
+  const requestId = searchParams.get('requestId')
+  const after     = parseInt(searchParams.get('after') || '0', 10)
 
-  if (!requestId) {
-    return NextResponse.json({ error: 'requestId required' }, { status: 400 })
-  }
+  if (!requestId) return NextResponse.json({ error: 'requestId required' }, { status: 400 })
 
-  const sc = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false } }
-  )
+  const sc = svc()
 
-  // Get all traces after the given step number
-  const { data: traces } = await sc
-    .from('content_agent_traces')
-    .select('step_number, step_name, step_label, step_status, detail, created_at')
-    .eq('request_id', requestId)
-    .gt('step_number', parseInt(after))
-    .order('step_number').order('created_at')
-
-  // Get current request status
-  const { data: req } = await sc
-    .from('content_requests')
-    .select('status, error_message, sections_generated, tier1_sources_used, tier2_sources_found, sections_deleted')
-    .eq('id', requestId).single()
+  const [{ data: traces }, { data: req }] = await Promise.all([
+    sc.from('content_agent_traces')
+      .select('step_number, step_name, step_label, step_status, detail, duration_ms, created_at')
+      .eq('request_id', requestId)
+      .gt('step_number', after)
+      .order('step_number').order('created_at'),
+    sc.from('content_requests')
+      .select('status, error_message, sections_generated, tier1_sources_used, tier2_sources_found, sections_deleted')
+      .eq('id', requestId)
+      .single(),
+  ])
 
   return NextResponse.json({
-    traces:  traces || [],
-    status:  req?.status || 'unknown',
+    traces: traces || [],
+    status: req?.status || 'unknown',
     summary: req ? {
       sectionsGenerated: req.sections_generated,
       tier1SourcesUsed:  req.tier1_sources_used,
