@@ -45,62 +45,181 @@ function dispatchAsync(requestId: string) {
 }
 
 // ════════════════════════════════════════════════════════════
-// TOPIC ANGLE SUGGESTIONS
+// TOPIC INTELLIGENCE — ANALYSE + REFINE
 // ════════════════════════════════════════════════════════════
 
-export async function suggestTopicAnglesAction(topic: string, contentType: string) {
-  return boundary('suggest_angles', async () => {
-    await getAuth() // must be logged in
+export type RefinementQuestion = {
+  id:       string
+  text:     string
+  options:  string[]
+}
 
-    const groqUrl = 'https://api.groq.com/openai/v1/chat/completions'
-    const apiKey  = process.env.GROQ_API_KEY
-    if (!apiKey) throw new Error('Groq API key not configured')
+export type TopicAnalysis = {
+  score:     number        // 0-100 specificity score
+  missing:   string[]     // dimensions not yet present
+  questions: RefinementQuestion[]
+}
+
+/**
+ * Analyse a draft topic and return 3 targeted clinical questions
+ * that will sharpen it for the pipeline. Questions are tuned to
+ * content type and what is already present in the topic.
+ */
+export async function analyzeTopicAction(
+  topic: string,
+  contentType: string,
+  specialty: string,
+): Promise<{ ok: true; value: TopicAnalysis } | { ok: false; error: string }> {
+  return boundary('analyze_topic', async () => {
+    await getAuth()
+    const apiKey = process.env.GROQ_API_KEY
+    if (!apiKey) throw new Error('Groq not configured')
 
     const typeLabel: Record<string, string> = {
-      cme_presentation: 'CME Presentation',
-      grand_rounds: 'Grand Rounds',
-      referral_guide: 'Referring Doctor Guide',
-      clinical_protocol: 'Clinical Protocol',
-      conference_abstract: 'Conference Abstract',
-      roundtable_points: 'Roundtable Talking Points',
-      case_discussion: 'Case Discussion',
-      patient_education: 'Patient Education',
+      cme_presentation: 'CME Presentation', grand_rounds: 'Grand Rounds',
+      referral_guide: 'Referring Doctor Guide', clinical_protocol: 'Clinical Protocol',
+      conference_abstract: 'Conference Abstract', roundtable_points: 'Roundtable Talking Points',
+      case_discussion: 'Case Discussion', patient_education: 'Patient Education',
     }
-    const label = typeLabel[contentType] || contentType
 
-    const systemPrompt = `You are a clinical content strategist helping a specialist physician focus their ${label}.
-Given a broad or general clinical topic, suggest 4 specific, evidence-rich angle variations.
-Each suggestion should:
-- Be specific enough to anchor a literature search (e.g. mention a trial, guideline year, procedure, or patient subgroup)
-- Be 60-120 characters (concise enough for a textarea chip)
-- Be clinically distinct from each other
-- NOT be a question — write as a descriptive topic phrase
-Return ONLY a JSON array of 4 strings. No extra text. Example:
-["PCI vs CABG in diabetic multivessel disease — FREEDOM trial 5-year outcomes","Revascularisation strategy in CTO: DECISION-CTO and real-world registry data","FFR-guided PCI in stable CAD — DEFER and FAME 2 landmark trials","Heart team approach for complex CAD — ESC 2023 myocardial revascularisation guidelines"]`
+    const systemPrompt = `You are a clinical content strategist. A ${specialty} specialist is creating a "${typeLabel[contentType] || contentType}".
 
-    const res = await fetch(groqUrl, {
+Analyse their draft topic and return exactly 3 targeted questions to sharpen it.
+Each question must address a MISSING clinical dimension: patient population, specific intervention, comparator/context, evidence anchor (trial/guideline/year), or teaching angle.
+Do NOT ask about things already clear in the topic.
+
+For each question, provide 4-5 short answer chips (3-7 words each) that are clinically accurate and distinct.
+
+Return ONLY valid JSON:
+{
+  "score": 35,
+  "missing": ["patient population", "evidence anchor"],
+  "questions": [
+    {
+      "id": "population",
+      "text": "Which patient population is the focus?",
+      "options": ["Diabetic CAD patients", "Post-STEMI patients", "Elderly (>75 yrs)", "High-risk CABG candidates", "General CAD population"]
+    },
+    {
+      "id": "evidence",
+      "text": "Which evidence base should anchor this?",
+      "options": ["ACC/AHA 2023 guidelines", "ESC 2023 guidelines", "FREEDOM trial data", "Indian registry / CSI data", "Recent meta-analysis"]
+    },
+    {
+      "id": "angle",
+      "text": "What is the key clinical teaching point?",
+      "options": ["Guidelines vs real-world practice", "Decision-making in complex cases", "Indian context and cost implications", "Emerging trial data impact"]
+    }
+  ]
+}`
+
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'llama-3.1-8b-instant',
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Topic: "${topic}"\nContent type: ${label}` },
+          { role: 'user', content: `Topic: "${topic}"` },
+        ],
+        temperature: 0.4,
+        max_tokens: 600,
+        response_format: { type: 'json_object' },
+      }),
+    })
+
+    if (!res.ok) throw new Error('AI service unavailable')
+    const json = await res.json()
+    const parsed = JSON.parse(json.choices?.[0]?.message?.content || '{}')
+
+    return {
+      score:     typeof parsed.score === 'number' ? Math.min(100, Math.max(0, parsed.score)) : 30,
+      missing:   Array.isArray(parsed.missing) ? parsed.missing : [],
+      questions: Array.isArray(parsed.questions) ? parsed.questions.slice(0, 3) : [],
+    } as TopicAnalysis
+  })
+}
+
+/**
+ * Compose a refined, pipeline-ready topic string from the original draft
+ * plus the user's selected answers to the clarifying questions.
+ */
+export async function buildRefinedTopicAction(
+  originalTopic: string,
+  contentType:   string,
+  answers:       string[],   // e.g. ["Diabetic CAD patients", "FREEDOM trial data", "Guidelines vs practice"]
+): Promise<{ ok: true; value: string } | { ok: false; error: string }> {
+  return boundary('build_refined_topic', async () => {
+    await getAuth()
+    const apiKey = process.env.GROQ_API_KEY
+    if (!apiKey) throw new Error('Groq not configured')
+
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'llama-3.1-8b-instant',
+        messages: [
+          {
+            role: 'system',
+            content: `You compose precise, pipeline-ready clinical topic strings for a ${contentType.replace(/_/g,' ')}.
+Combine the original topic with the user's additional context into ONE clear, specific topic phrase.
+Rules:
+- 80–160 characters
+- Mention specific patient population, intervention, and evidence anchor
+- Do NOT use bullet points or lists — one flowing phrase
+- Do NOT start with "How to" or "A study of"
+- Format: [Intervention/topic] in [population] — [evidence/guideline/trial] [context/angle]
+Return ONLY the topic string, no quotes, no explanation.`,
+          },
+          {
+            role: 'user',
+            content: `Original topic: "${originalTopic}"\nUser clarifications: ${answers.join(' | ')}`,
+          },
+        ],
+        temperature: 0.3,
+        max_tokens: 100,
+      }),
+    })
+
+    if (!res.ok) throw new Error('AI service unavailable')
+    const json  = await res.json()
+    const text  = (json.choices?.[0]?.message?.content || '').trim()
+                    .replace(/^["']|["']$/g, '')   // strip surrounding quotes if any
+    if (!text || text.length < 20) throw new Error('Could not compose topic')
+    return text
+  })
+}
+
+// ════════════════════════════════════════════════════════════
+// SUGGEST TOPIC ANGLES (kept for backwards compat)
+// ════════════════════════════════════════════════════════════
+
+export async function suggestTopicAnglesAction(topic: string, contentType: string) {
+  return boundary('suggest_angles', async () => {
+    await getAuth()
+    const apiKey = process.env.GROQ_API_KEY
+    if (!apiKey) throw new Error('Groq not configured')
+
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'llama-3.1-8b-instant',
+        messages: [
+          { role: 'system', content: `Suggest 4 specific, evidence-rich clinical topic angles for a ${contentType.replace(/_/g,' ')}. Return ONLY a JSON array of 4 strings.` },
+          { role: 'user', content: `Topic: "${topic}"` },
         ],
         temperature: 0.7,
         max_tokens: 400,
       }),
     })
-
-    if (!res.ok) throw new Error('Could not reach AI service')
+    if (!res.ok) throw new Error('AI service unavailable')
     const json = await res.json()
     const text = json.choices?.[0]?.message?.content?.trim() || '[]'
-
-    // Extract JSON array from response (handle if model adds extra text)
     const match = text.match(/\[[\s\S]*\]/)
     if (!match) return []
-    const suggestions: string[] = JSON.parse(match[0])
-    return suggestions.slice(0, 4)
+    return (JSON.parse(match[0]) as string[]).slice(0, 4)
   })
 }
 

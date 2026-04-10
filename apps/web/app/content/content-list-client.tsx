@@ -1,10 +1,15 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect, useRef } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { createContentRequestAction, suggestTopicAnglesAction } from '@/app/actions/content'
+import {
+  createContentRequestAction,
+  analyzeTopicAction,
+  buildRefinedTopicAction,
+  type RefinementQuestion,
+} from '@/app/actions/content'
 
 type Request = {
   id: string; topic: string; content_type: string; status: string
@@ -150,8 +155,13 @@ export default function ContentListClient({ specialist, requests, analytics }: {
   const [audience,     setAudience]     = useState('specialist_peers')
   const [depth,        setDepth]        = useState('standard')
   const [instructions, setInstructions] = useState('')
-  const [suggestions,  setSuggestions]  = useState<string[]>([])
-  const [loadingSugg,  setLoadingSugg]  = useState(false)
+  // Topic refinement framework
+  const [topicScore,       setTopicScore]       = useState(0)
+  const [refineOpen,       setRefineOpen]       = useState(false)
+  const [refineLoading,    setRefineLoading]    = useState(false)
+  const [refineQuestions,  setRefineQuestions]  = useState<RefinementQuestion[]>([])
+  const [refineAnswers,    setRefineAnswers]    = useState<Record<string, string>>({})
+  const [buildingTopic,    setBuildingTopic]    = useState(false)
   const [typeFilter,   setTypeFilter]   = useState('all')
   const [timePeriod,   setTimePeriod]   = useState<'month'|'ytd'|'all'>('month')
 
@@ -163,24 +173,83 @@ export default function ContentListClient({ specialist, requests, analytics }: {
   function resetForm() {
     setStep(1); setSelectedType(''); setTopic('')
     setAudience('specialist_peers'); setDepth('standard'); setInstructions('')
-    setSuggestions([]); setLoadingSugg(false)
+    setTopicScore(0); setRefineOpen(false); setRefineLoading(false)
+    setRefineQuestions([]); setRefineAnswers({}); setBuildingTopic(false)
   }
 
-  async function fetchSuggestions() {
-    if (!topic.trim() || topic.length < 10 || loadingSugg) return
-    setLoadingSugg(true)
-    setSuggestions([])
+  // ── Deterministic local specificity scorer (instant, no LLM) ──
+  function scoreTopicLocally(t: string): number {
+    if (!t || t.trim().length < 5) return 0
+    let score = 0
+    const words = t.trim().split(/\s+/)
+    if (words.length >= 6)  score += 15  // reasonable length
+    if (words.length >= 10) score += 10  // detailed
+    if (/\b(20\d\d)\b/.test(t)) score += 20                                          // has year
+    if (/\b(ACC|ESC|AHA|NICE|WHO|CSI|ICMR|AIIMS|NABH|NMC|JNC|CHEST|ISCCM)\b/i.test(t)) score += 20  // guideline org
+    if (/\b(trial|study|rct|data|outcomes|registry|meta-analysis|guideline|protocol|consensus)\b/i.test(t)) score += 15  // evidence type
+    if (/\b(diabetic|elderly|paediatric|post[-\s]?(MI|STEMI|CABG|PCI)|high.risk|indian|rural|urban)\b/i.test(t)) score += 10  // patient population
+    if (/\b(vs|versus|compared|over|after|before|following|in patients|with)\b/i.test(t)) score += 10  // comparator
+    return Math.min(score, 100)
+  }
+
+  // Auto-score when topic changes (debounced 600ms)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  function handleTopicChange(val: string) {
+    setTopic(val)
+    setRefineAnswers({})       // clear answers on edit
+    setRefineOpen(false)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      const s = scoreTopicLocally(val)
+      setTopicScore(s)
+    }, 600)
+  }
+
+  // ── AI-powered topic analysis ──
+  async function handleAnalyseTopic() {
+    if (!topic.trim() || topic.length < 8 || refineLoading) return
+    setRefineLoading(true)
+    setRefineOpen(true)
+    setRefineQuestions([])
+    setRefineAnswers({})
     try {
-      const r = await suggestTopicAnglesAction(topic.trim(), selectedType)
-      if (r.ok && Array.isArray(r.value) && r.value.length > 0) {
-        setSuggestions(r.value)
+      const r = await analyzeTopicAction(topic.trim(), selectedType, 'clinical specialist')
+      if (r.ok) {
+        setTopicScore(r.value.score)
+        setRefineQuestions(r.value.questions)
       } else {
-        toast.error('Could not generate suggestions — try rephrasing your topic')
+        toast.error('Could not analyse topic — please try again')
+        setRefineOpen(false)
       }
     } catch {
-      toast.error('Could not reach AI service — check connection and retry')
+      toast.error('AI service unavailable — please try again')
+      setRefineOpen(false)
     } finally {
-      setLoadingSugg(false)
+      setRefineLoading(false)
+    }
+  }
+
+  // ── Build refined topic from answers ──
+  async function handleBuildRefinedTopic() {
+    const selectedAnswers = Object.values(refineAnswers)
+    if (selectedAnswers.length === 0) return
+    setBuildingTopic(true)
+    try {
+      const r = await buildRefinedTopicAction(topic.trim(), selectedType, selectedAnswers)
+      if (r.ok && r.value) {
+        setTopic(r.value)
+        setTopicScore(scoreTopicLocally(r.value))
+        setRefineOpen(false)
+        setRefineQuestions([])
+        setRefineAnswers({})
+        toast.success('Topic refined ✓')
+      } else {
+        toast.error('Could not compose refined topic — please edit manually')
+      }
+    } catch {
+      toast.error('AI service unavailable')
+    } finally {
+      setBuildingTopic(false)
     }
   }
 
@@ -573,86 +642,190 @@ export default function ContentListClient({ specialist, requests, analytics }: {
                 </div>
               )}
 
-              {/* ── STEP 2: Topic input ── */}
+              {/* ── STEP 2: Topic input + intelligent refinement ── */}
               {step === 2 && selectedTypeMeta && (
-                <div className="p-4 space-y-4">
+                <div className="p-4 space-y-3">
+
                   {/* Selected type recap */}
                   <div className="flex items-center gap-2.5 bg-navy-50 rounded-xl px-3.5 py-2.5">
                     <span className="text-lg">{selectedTypeMeta.icon}</span>
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                       <div className="text-xs font-medium text-navy-800">{selectedTypeMeta.label}</div>
-                      <div className="text-2xs text-navy-800/50">{selectedTypeMeta.credibility}</div>
+                      <div className="text-2xs text-navy-800/45 truncate">{selectedTypeMeta.credibility}</div>
                     </div>
-                    <button onClick={() => setStep(1)} className="text-2xs text-navy-800/50 hover:text-navy-800 transition-colors border border-navy-800/15 px-2 py-0.5 rounded-lg">Change</button>
+                    <button onClick={() => setStep(1)} className="text-2xs text-navy-800/50 hover:text-navy-800 transition-colors border border-navy-800/15 px-2 py-0.5 rounded-lg flex-shrink-0">Change</button>
                   </div>
 
                   {/* Topic textarea */}
                   <div>
-                    <label className="text-2xs font-semibold text-navy-800/50 uppercase tracking-wider block mb-1.5">Your topic</label>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-2xs font-semibold text-navy-800/50 uppercase tracking-wider">Your topic</label>
+                      {/* Specificity gauge */}
+                      {topic.length >= 5 && (
+                        <div className="flex items-center gap-1.5">
+                          <div className="flex gap-0.5">
+                            {[20,40,60,80].map(threshold => (
+                              <div key={threshold}
+                                className={`h-1.5 w-4 rounded-full transition-colors ${topicScore >= threshold
+                                  ? topicScore >= 70 ? 'bg-forest-600' : topicScore >= 40 ? 'bg-amber-500' : 'bg-red-400'
+                                  : 'bg-navy-800/10'}`}/>
+                            ))}
+                          </div>
+                          <span className={`text-2xs font-medium ${topicScore >= 70 ? 'text-forest-700' : topicScore >= 40 ? 'text-amber-600' : 'text-red-500'}`}>
+                            {topicScore >= 70 ? 'Specific ✓' : topicScore >= 40 ? 'Moderate' : 'Too broad'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
                     <textarea
-                      value={topic} onChange={e => { setTopic(e.target.value); if (suggestions.length > 0) setSuggestions([]) }}
+                      value={topic}
+                      onChange={e => handleTopicChange(e.target.value)}
                       placeholder={
-                        selectedType === 'cme_presentation'   ? 'e.g. PCI outcomes in diabetic patients — ACC 2024 trial data' :
-                        selectedType === 'grand_rounds'        ? 'e.g. Evolving role of FFR-guided PCI in multivessel disease' :
-                        selectedType === 'referral_guide'      ? 'e.g. When to refer for TAVI — a practical guide for GPs' :
-                        selectedType === 'clinical_protocol'   ? 'e.g. STEMI reperfusion protocol — time-to-balloon targets' :
-                        selectedType === 'conference_abstract' ? 'e.g. Real-world outcomes of drug-coated balloon in ISR' :
-                        selectedType === 'roundtable_points'   ? 'e.g. PCI vs CABG in multivessel disease — 2024 evidence' :
-                        selectedType === 'case_discussion'     ? 'e.g. Complex bifurcation PCI — literature and technique' :
+                        selectedType === 'cme_presentation'   ? 'e.g. PCI outcomes in diabetic patients — ACC/ESC 2023 guidelines' :
+                        selectedType === 'grand_rounds'        ? 'e.g. FFR-guided PCI in multivessel disease — FAME 2 trial data' :
+                        selectedType === 'referral_guide'      ? 'e.g. When to refer for TAVI — practical guide for GPs (ESC 2021)' :
+                        selectedType === 'clinical_protocol'   ? 'e.g. STEMI reperfusion protocol — door-to-balloon time targets' :
+                        selectedType === 'conference_abstract' ? 'e.g. Real-world outcomes of drug-coated balloon in ISR — Indian registry' :
+                        selectedType === 'roundtable_points'   ? 'e.g. PCI vs CABG in multivessel CAD — 2023 trial evidence update' :
+                        selectedType === 'case_discussion'     ? 'e.g. Complex bifurcation PCI in high-risk patient — MDT approach' :
                         selectedType === 'patient_education'   ? 'e.g. What to expect before and after coronary angioplasty' :
-                        'Describe the clinical topic in detail...'
+                        'Describe your clinical topic...'
                       }
-                      rows={4}
+                      rows={3}
                       className="w-full border border-navy-800/15 rounded-xl px-3.5 py-3 text-sm text-navy-800 placeholder:text-navy-800/30 focus:outline-none focus:border-navy-800/40 resize-none bg-white"
                       autoFocus
                     />
-                    <div className="flex items-center justify-between mt-1.5">
-                      <span className="text-2xs text-navy-800/35">Be specific — include procedure names, trial names, or guideline year</span>
-                      <span className={`text-2xs ${topic.length > 450 ? 'text-red-500' : 'text-navy-800/30'}`}>{topic.length}/500</span>
+                    <div className="flex items-center justify-between mt-1">
+                      <span className="text-2xs text-navy-800/35">Include: patient group · procedure · trial name · guideline year</span>
+                      <span className={`text-2xs ${topic.length > 450 ? 'text-red-500' : 'text-navy-800/25'}`}>{topic.length}/500</span>
                     </div>
                   </div>
 
-                  {/* AI angle suggestions */}
-                  <div>
-                    <button
-                      onClick={fetchSuggestions}
-                      disabled={topic.length < 10 || loadingSugg}
-                      className="flex items-center gap-1.5 text-2xs font-semibold text-navy-800/60 hover:text-navy-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors border border-navy-800/15 hover:border-navy-800/30 px-3 py-1.5 rounded-lg">
-                      {loadingSugg ? (
-                        <span className="w-3 h-3 border border-navy-800/40 border-t-navy-800 rounded-full animate-spin"/>
-                      ) : '✨'}
-                      {loadingSugg ? 'Finding angles…' : 'Suggest focused angles'}
-                    </button>
-                    {suggestions.length > 0 && (
-                      <div className="mt-2 space-y-1.5">
-                        <div className="text-2xs text-navy-800/40">Tap to use as your topic:</div>
-                        {suggestions.map((s, i) => (
-                          <button key={i} onClick={() => { setTopic(s); setSuggestions([]) }}
-                            className="w-full text-left text-2xs text-navy-800 bg-navy-50 hover:bg-navy-100 border border-navy-800/10 hover:border-navy-800/25 rounded-xl px-3 py-2 transition-all leading-snug active:scale-99">
-                            {s}
+                  {/* ── AI Refinement Panel ── */}
+                  {topic.length >= 8 && topicScore < 70 && (
+                    <div className="border border-amber-200/80 rounded-xl overflow-hidden">
+                      {/* Panel header */}
+                      <div className="bg-amber-50 px-3.5 py-2.5 flex items-center justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-semibold text-amber-800">
+                            {topicScore < 40 ? '⚠️ Topic is too broad for quality output' : '💡 Topic could be more specific'}
+                          </div>
+                          <div className="text-2xs text-amber-700/70 mt-0.5">
+                            {topicScore < 40
+                              ? 'Broad topics produce scattered evidence and thin content. Answer 3 quick questions to focus it.'
+                              : 'A few more details will produce stronger, better-cited content.'}
+                          </div>
+                        </div>
+                        {!refineOpen && (
+                          <button
+                            onClick={handleAnalyseTopic}
+                            disabled={refineLoading}
+                            className="flex-shrink-0 flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white text-2xs font-semibold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50">
+                            {refineLoading
+                              ? <span className="w-3 h-3 border border-white/40 border-t-white rounded-full animate-spin"/>
+                              : '🎯'}
+                            {refineLoading ? 'Analysing…' : 'Refine topic'}
                           </button>
-                        ))}
+                        )}
                       </div>
-                    )}
-                  </div>
 
-                  {/* Anti-hallucination note */}
-                  <div className="bg-forest-50 border border-forest-200/60 rounded-xl px-3.5 py-3">
-                    <div className="text-xs font-medium text-forest-800 mb-1">🔬 What the research agent will do</div>
-                    <div className="text-2xs text-forest-700/70 leading-relaxed space-y-0.5">
-                      <div>• Search PubMed, ACC, ESC, NEJM, Lancet in real-time</div>
-                      <div>• Score each source for credibility (1–5 scale)</div>
-                      <div>• Extract key findings and statistics</div>
-                      <div>• Write sections only where ≥1 Tier 1 citation exists</div>
-                      <div>• Remove any section without peer-reviewed support</div>
+                      {/* Questions */}
+                      {refineOpen && refineQuestions.length > 0 && (
+                        <div className="bg-white px-3.5 py-3 space-y-3.5">
+                          {refineQuestions.map((q, qi) => (
+                            <div key={q.id}>
+                              <div className="text-2xs font-semibold text-navy-800/60 mb-1.5">
+                                {qi + 1}. {q.text}
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {q.options.map(opt => {
+                                  const selected = refineAnswers[q.id] === opt
+                                  return (
+                                    <button
+                                      key={opt}
+                                      onClick={() => setRefineAnswers(prev => ({ ...prev, [q.id]: opt }))}
+                                      className={`text-2xs px-2.5 py-1.5 rounded-lg border transition-all ${
+                                        selected
+                                          ? 'bg-navy-800 text-white border-navy-800 font-medium'
+                                          : 'bg-white text-navy-800/70 border-navy-800/15 hover:border-navy-800/35 hover:text-navy-800'
+                                      }`}>
+                                      {opt}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          ))}
+
+                          {/* Compose button */}
+                          <div className="pt-1 flex gap-2">
+                            <button
+                              onClick={handleBuildRefinedTopic}
+                              disabled={Object.keys(refineAnswers).length === 0 || buildingTopic}
+                              className="flex items-center gap-1.5 bg-navy-800 hover:bg-navy-900 text-white text-2xs font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed active:scale-99">
+                              {buildingTopic
+                                ? <span className="w-3 h-3 border border-white/40 border-t-white rounded-full animate-spin"/>
+                                : '✨'}
+                              {buildingTopic ? 'Building…' : `Build refined topic (${Object.keys(refineAnswers).length}/${refineQuestions.length} answered)`}
+                            </button>
+                            <button
+                              onClick={() => { setRefineOpen(false); setRefineQuestions([]); setRefineAnswers({}) }}
+                              className="text-2xs text-navy-800/40 hover:text-navy-800/70 px-3 py-2 transition-colors">
+                              Skip
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Loading skeleton */}
+                      {refineLoading && (
+                        <div className="bg-white px-3.5 py-3 space-y-2.5">
+                          {[1,2,3].map(i => (
+                            <div key={i} className="space-y-1.5 animate-pulse">
+                              <div className="h-2.5 bg-navy-800/8 rounded w-2/3"/>
+                              <div className="flex gap-1.5">
+                                {[1,2,3].map(j => <div key={j} className="h-6 bg-navy-800/6 rounded-lg w-20"/>)}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Success state when specific enough */}
+                  {topic.length >= 8 && topicScore >= 70 && (
+                    <div className="bg-forest-50 border border-forest-200/60 rounded-xl px-3.5 py-2.5 flex items-center gap-2.5">
+                      <div className="w-6 h-6 bg-forest-600 rounded-full flex items-center justify-center flex-shrink-0">
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 5l2 2 4-4" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold text-forest-800">Topic is well-defined</div>
+                        <div className="text-2xs text-forest-700/70">Specific enough for focused evidence search and quality output</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* What the pipeline does */}
+                  <div className="bg-navy-50/60 rounded-xl px-3.5 py-2.5">
+                    <div className="text-2xs font-medium text-navy-800/60 mb-1">What happens next</div>
+                    <div className="text-2xs text-navy-800/45 leading-relaxed space-y-0.5">
+                      <div>① Topic broken into {depth === 'overview' ? '3' : depth === 'deep_dive' ? '6' : '4'} focused research areas</div>
+                      <div>② Each area searched across PubMed, ACC, ESC, AHA, NEJM, Lancet</div>
+                      <div>③ Sources scored for credibility — only peer-reviewed evidence used</div>
+                      <div>④ Content structured and cited using Vancouver format</div>
                     </div>
                   </div>
 
                   <div className="flex gap-2.5 pt-1">
                     <button onClick={() => setStep(1)} className="px-4 py-3 border border-navy-800/15 text-sm text-navy-800/60 rounded-xl hover:border-navy-800/30 transition-colors">Back</button>
-                    <button onClick={() => setStep(3)} disabled={!topic.trim() || topic.length < 5}
-                      className="flex-1 bg-navy-800 text-white text-sm font-medium py-3 rounded-xl hover:bg-navy-900 transition-colors disabled:opacity-40 disabled:cursor-not-allowed active:scale-99">
-                      Next — research settings →
+                    <button
+                      onClick={() => setStep(3)}
+                      disabled={!topic.trim() || topic.length < 8}
+                      className={`flex-1 text-white text-sm font-semibold py-3 rounded-xl transition-all disabled:opacity-40 disabled:cursor-not-allowed active:scale-99 ${
+                        topicScore >= 70 ? 'bg-forest-700 hover:bg-forest-800' : 'bg-navy-800 hover:bg-navy-900'
+                      }`}>
+                      {topicScore >= 70 ? '✓ Continue to settings →' : 'Continue anyway →'}
                     </button>
                   </div>
                 </div>
