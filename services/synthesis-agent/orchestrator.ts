@@ -32,7 +32,11 @@ import { callExternalService, log, moduleBoundary, withTimeout } from '../../pac
 import { dispatch as notify, Templates } from '../../packages/notification-bus'
 import type { ClinCollab } from '../../packages/types'
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
+let _groq: Groq | null = null
+function getGroq(): Groq {
+  if (!_groq) _groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
+  return _groq
+}
 
 function svc() {
   return createClient(
@@ -160,7 +164,7 @@ export async function runSynthesisJob(jobId: string): Promise<void> {
 
   // ── 7. LLM synthesis call ─────────────────────────────────────
   const synthesisResult = await callExternalService('groq_synthesis', async () => {
-    const completion = await groq.chat.completions.create({
+    const completion = await getGroq().chat.completions.create({
       model:       'llama-3.3-70b-versatile',
       temperature: 0.1,
       max_tokens:  800,

@@ -13,6 +13,12 @@
 
 import Groq from 'groq-sdk'
 
+let _groq: Groq | null = null
+function getGroq(): Groq {
+  if (!_groq) _groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
+  return _groq
+}
+
 // Re-export all pure logic so server files can import from one place
 export {
   resolveVisibleQuestions,
@@ -35,8 +41,6 @@ export type {
   RedFlagResult,
   Lang,
 } from './triage-logic'
-
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
 
 // ── AI clinical synopsis generator ───────────────────────────────────────────
 /**
@@ -79,7 +83,7 @@ ${redFlagSummary ? `Red flags identified:\n${redFlagSummary}` : ''}
 Write a concise 2–3 sentence clinical summary of this patient's presentation for the specialist. Use clinical language. Do not include a greeting or title. Do not provide diagnosis or clinical advice — summarise the presenting complaint, key history, and any important flags.`
 
   try {
-    const completion = await groq.chat.completions.create({
+    const completion = await getGroq().chat.completions.create({
       model:       'llama-3.3-70b-versatile',
       messages:    [{ role: 'user', content: prompt }],
       temperature: 0.2,

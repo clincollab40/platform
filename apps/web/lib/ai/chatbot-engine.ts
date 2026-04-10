@@ -13,7 +13,11 @@
 
 import Groq from 'groq-sdk'
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
+let _groq: Groq | null = null
+function getGroq(): Groq {
+  if (!_groq) _groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
+  return _groq
+}
 
 // ── Safety constants ────────────────────────────────
 const EMERGENCY_KEYWORDS = [
@@ -217,7 +221,7 @@ export async function processPatientMessage(
   ]
 
   try {
-    const completion = await groq.chat.completions.create({
+    const completion = await getGroq().chat.completions.create({
       model: 'llama-3.3-70b-versatile',
       messages,
       temperature: 0.3,
