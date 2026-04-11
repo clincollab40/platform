@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect, useCallback } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
@@ -9,6 +9,11 @@ import {
   setSpecialistPermissionAction, changePlanAction,
   updateOrgAction, assignSpecialistToOrgAction,
 } from '@/app/actions/admin'
+import {
+  getImplementationStepsAction, updateStepAction,
+  runTestSuiteAction, getTestRunsAction,
+  inviteUserAction, getInvitationsAction, revokeInvitationAction,
+} from '@/app/actions/provisioning'
 
 const MODULES = [
   { key:'m1_identity',         label:'M1 · Identity & Auth',       desc:'Core — always required', alwaysOn: true },
@@ -38,7 +43,42 @@ export default function OrgDetailClient({ org, usage, auditLog, flagRegistry, al
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
-  const [tab, setTab] = useState<'modules'|'specialists'|'usage'|'settings'|'audit'>('modules')
+  const [tab, setTab] = useState<'modules'|'specialists'|'usage'|'settings'|'audit'|'provision'|'tests'>('modules')
+
+  // Provision tab state
+  const [steps,         setSteps]         = useState<any[]>([])
+  const [stepsLoading,  setStepsLoading]  = useState(false)
+  const [invitations,   setInvitations]   = useState<any[]>([])
+  const [inviteEmail,   setInviteEmail]   = useState('')
+  const [inviteRole,    setInviteRole]    = useState<'owner'|'admin'|'member'>('member')
+  const [inviteMsg,     setInviteMsg]     = useState('')
+  const [inviting,      setInviting]      = useState(false)
+
+  // Test Runner tab state
+  const [testRuns,       setTestRuns]      = useState<any[]>([])
+  const [testRunning,    setTestRunning]   = useState(false)
+  const [expandedRun,    setExpandedRun]   = useState<string | null>(null)
+
+  const loadProvisionData = useCallback(async () => {
+    setStepsLoading(true)
+    const [stepsRes, invRes] = await Promise.all([
+      getImplementationStepsAction(org.id),
+      getInvitationsAction(org.id),
+    ])
+    if (stepsRes.ok)  setSteps(stepsRes.value)
+    if (invRes.ok)    setInvitations(invRes.value)
+    setStepsLoading(false)
+  }, [org.id])
+
+  const loadTestRuns = useCallback(async () => {
+    const r = await getTestRunsAction(org.id)
+    if (r.ok) setTestRuns(r.value)
+  }, [org.id])
+
+  useEffect(() => {
+    if (tab === 'provision') loadProvisionData()
+    if (tab === 'tests')     loadTestRuns()
+  }, [tab, loadProvisionData, loadTestRuns])
   const [reason, setReason] = useState('')
   const [expandedModule, setExpandedModule] = useState<string | null>(null)
   const [pendingChanges, setPendingChanges] = useState<Record<string, any>>({})
@@ -91,11 +131,13 @@ export default function OrgDetailClient({ org, usage, auditLog, flagRegistry, al
   }
 
   const tabs = [
-    { key:'modules',      label:`Modules & Flags` },
+    { key:'modules',      label:'Modules & Flags' },
     { key:'specialists',  label:`Specialists (${orgSpecialists.length})` },
     { key:'usage',        label:'Usage' },
     { key:'settings',     label:'Settings' },
     { key:'audit',        label:`Audit (${auditLog.length})` },
+    { key:'provision',    label:'Provision' },
+    { key:'tests',        label:'Tests' },
   ]
 
   return (
@@ -465,6 +507,292 @@ export default function OrgDetailClient({ org, usage, auditLog, flagRegistry, al
             )}
           </div>
         )}
+        {/* PROVISION TAB */}
+        {tab === 'provision' && (
+          <div className="space-y-4">
+            {/* Implementation checklist */}
+            <div className="bg-white rounded-2xl border border-navy-800/8">
+              <div className="px-5 py-3.5 border-b border-navy-800/8 flex items-center justify-between">
+                <span className="data-label">Implementation checklist</span>
+                <button onClick={loadProvisionData} className="text-xs text-navy-800/50 hover:text-navy-800 transition-colors">Refresh</button>
+              </div>
+
+              {stepsLoading ? (
+                <div className="text-center py-8 text-sm text-navy-800/40">Loading…</div>
+              ) : steps.length === 0 ? (
+                <div className="text-center py-8 text-sm text-navy-800/50">
+                  No checklist yet.
+                  <button onClick={async () => {
+                    const r = await fetch(`/api/admin/provision-steps?orgId=${org.id}`, { method: 'POST' })
+                    loadProvisionData()
+                  }} className="ml-2 text-navy-800 underline">Seed checklist</button>
+                </div>
+              ) : (
+                steps.map((step: any, idx: number) => {
+                  const statusColours: Record<string, string> = {
+                    completed:   'bg-forest-600 text-white',
+                    in_progress: 'bg-amber-500 text-white',
+                    failed:      'bg-red-500 text-white',
+                    skipped:     'bg-navy-800/20 text-navy-800/50',
+                    pending:     'bg-navy-800/10 text-navy-800/40',
+                  }
+                  return (
+                    <div key={step.id} className={`px-5 py-3.5 ${idx < steps.length - 1 ? 'border-b border-navy-800/5' : ''}`}>
+                      <div className="flex items-start gap-3">
+                        <div className={`w-6 h-6 rounded-full text-2xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5 ${statusColours[step.status]}`}>
+                          {step.status === 'completed' ? '✓' : step.status === 'failed' ? '✗' : step.step_number}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-medium text-navy-800">{step.title}</span>
+                            <span className={`text-2xs px-1.5 py-0.5 rounded capitalize font-medium ${statusColours[step.status]}`}>{step.status.replace('_',' ')}</span>
+                          </div>
+                          <div className="text-xs text-navy-800/50 mt-0.5">{step.description}</div>
+                          {step.notes && <div className="text-xs text-amber-700 mt-1 italic">{step.notes}</div>}
+                          {step.completed_at && (
+                            <div className="text-2xs text-navy-800/30 mt-0.5">
+                              Completed {new Date(step.completed_at).toLocaleDateString('en-IN', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}
+                              {step.specialists?.name && ` by ${step.specialists.name}`}
+                            </div>
+                          )}
+                        </div>
+                        {/* Step actions */}
+                        {step.status !== 'completed' && step.status !== 'skipped' && (
+                          <div className="flex gap-1.5 flex-shrink-0">
+                            <button
+                              onClick={() => startTransition(async () => {
+                                const r = await updateStepAction(org.id, step.step_key, 'completed')
+                                if (!r.ok) toast.error(r.error)
+                                else { toast.success('Step marked complete'); loadProvisionData() }
+                              })}
+                              disabled={isPending}
+                              className="text-2xs bg-forest-50 text-forest-700 border border-forest-200 rounded-lg px-2 py-1 hover:bg-forest-100 transition-colors">
+                              Done
+                            </button>
+                            {step.status !== 'in_progress' && (
+                              <button
+                                onClick={() => startTransition(async () => {
+                                  await updateStepAction(org.id, step.step_key, 'skipped')
+                                  loadProvisionData()
+                                })}
+                                disabled={isPending}
+                                className="text-2xs bg-navy-50 text-navy-800/50 border border-navy-800/10 rounded-lg px-2 py-1 hover:bg-navy-100 transition-colors">
+                                Skip
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {step.status === 'completed' && (
+                          <button
+                            onClick={() => startTransition(async () => {
+                              await updateStepAction(org.id, step.step_key, 'pending')
+                              loadProvisionData()
+                            })}
+                            disabled={isPending}
+                            className="text-2xs text-navy-800/30 hover:text-navy-800/60 transition-colors flex-shrink-0">
+                            Undo
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+
+            {/* Invitations */}
+            <div className="bg-white rounded-2xl border border-navy-800/8">
+              <div className="px-5 py-3.5 border-b border-navy-800/8 data-label">
+                User invitations
+              </div>
+
+              {/* Invite form */}
+              <div className="px-5 py-4 border-b border-navy-800/5">
+                <div className="flex gap-2 items-end">
+                  <div className="flex-1">
+                    <label className="data-label block mb-1">Email</label>
+                    <input type="email" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)}
+                      placeholder="user@hospital.com" className="input-clinical" />
+                  </div>
+                  <div className="w-28">
+                    <label className="data-label block mb-1">Role</label>
+                    <select value={inviteRole} onChange={e => setInviteRole(e.target.value as any)} className="input-clinical">
+                      <option value="member">Member</option>
+                      <option value="admin">Admin</option>
+                      <option value="owner">Owner</option>
+                    </select>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (!inviteEmail.trim()) { toast.error('Enter an email'); return }
+                      setInviting(true)
+                      const r = await inviteUserAction({ orgId: org.id, email: inviteEmail, orgRole: inviteRole, message: inviteMsg })
+                      setInviting(false)
+                      if (!r.ok) toast.error(r.error)
+                      else { toast.success('Invitation created'); setInviteEmail(''); setInviteMsg(''); loadProvisionData() }
+                    }}
+                    disabled={inviting || !inviteEmail.trim()}
+                    className="btn-primary text-xs py-2 px-4 h-10">
+                    {inviting ? '…' : 'Invite'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Invitation list */}
+              {invitations.length === 0 ? (
+                <div className="text-center py-6 text-sm text-navy-800/40">No invitations sent yet</div>
+              ) : (
+                invitations.map((inv: any, idx: number) => {
+                  const statusDot: Record<string, string> = {
+                    pending:  'bg-amber-400',
+                    accepted: 'bg-forest-500',
+                    expired:  'bg-red-400',
+                    revoked:  'bg-navy-800/20',
+                  }
+                  return (
+                    <div key={inv.id} className={`px-5 py-3 ${idx < invitations.length - 1 ? 'border-b border-navy-800/5' : ''}`}>
+                      <div className="flex items-center gap-3">
+                        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${statusDot[inv.status] || 'bg-navy-800/20'}`}/>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-navy-800">{inv.email}</span>
+                            <span className="text-2xs bg-navy-50 text-navy-800/50 px-1.5 py-0.5 rounded capitalize">{inv.org_role}</span>
+                            <span className="text-2xs text-navy-800/30 capitalize">{inv.status}</span>
+                          </div>
+                          <div className="text-2xs text-navy-800/40 mt-0.5">
+                            Invited {new Date(inv.created_at).toLocaleDateString('en-IN', { day:'numeric', month:'short' })}
+                            · Expires {new Date(inv.expires_at).toLocaleDateString('en-IN', { day:'numeric', month:'short' })}
+                            {inv.specialists?.name && ` · by ${inv.specialists.name}`}
+                          </div>
+                        </div>
+                        {inv.status === 'pending' && (
+                          <button
+                            onClick={async () => {
+                              const r = await revokeInvitationAction(inv.id, org.id)
+                              if (!r.ok) toast.error(r.error)
+                              else { toast.success('Invitation revoked'); loadProvisionData() }
+                            }}
+                            className="text-2xs text-red-500 hover:text-red-700 transition-colors">
+                            Revoke
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TESTS TAB */}
+        {tab === 'tests' && (
+          <div className="space-y-4">
+            {/* Run controls */}
+            <div className="bg-white rounded-2xl border border-navy-800/8 p-5">
+              <div className="data-label mb-3">Run module health check</div>
+              <p className="text-xs text-navy-800/60 mb-4">
+                Runs a health-check suite across all enabled modules for <strong>{org.name}</strong>.
+                Validates configuration, checks required env vars, and verifies specialist assignment.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={async () => {
+                    setTestRunning(true)
+                    const r = await runTestSuiteAction(org.id)
+                    setTestRunning(false)
+                    if (!r.ok) toast.error(r.error)
+                    else {
+                      toast[r.value.failed > 0 ? 'error' : 'success'](
+                        `Tests complete: ${r.value.passed} passed, ${r.value.failed} failed, ${r.value.skipped} skipped`
+                      )
+                      loadTestRuns()
+                    }
+                  }}
+                  disabled={testRunning || isPending}
+                  className="btn-primary text-sm py-2 px-5 disabled:opacity-60">
+                  {testRunning ? 'Running tests…' : 'Run full test suite'}
+                </button>
+                <button onClick={loadTestRuns} className="btn-secondary text-sm py-2 px-4">Refresh</button>
+              </div>
+            </div>
+
+            {/* Test run history */}
+            <div className="bg-white rounded-2xl border border-navy-800/8">
+              <div className="px-5 py-3.5 border-b border-navy-800/8 data-label">Test run history</div>
+
+              {testRuns.length === 0 ? (
+                <div className="text-center py-8 text-sm text-navy-800/40">No test runs yet</div>
+              ) : (
+                testRuns.map((run: any, idx: number) => {
+                  const isExpanded = expandedRun === run.id
+                  const passRate   = run.total_tests > 0 ? Math.round((run.passed / run.total_tests) * 100) : 0
+
+                  return (
+                    <div key={run.id} className={`${idx < testRuns.length - 1 ? 'border-b border-navy-800/5' : ''}`}>
+                      <button onClick={() => setExpandedRun(isExpanded ? null : run.id)}
+                        className="w-full px-5 py-3.5 text-left flex items-center gap-3 hover:bg-navy-50/50 transition-colors">
+                        <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                          run.status === 'completed' && run.failed === 0 ? 'bg-forest-500' :
+                          run.status === 'failed' || run.failed > 0 ? 'bg-red-500' :
+                          run.status === 'in_progress' ? 'bg-amber-400' : 'bg-navy-800/20'
+                        }`}/>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-navy-800">
+                              {run.module_key ? `Module: ${run.module_key}` : 'Full suite'}
+                            </span>
+                            <span className={`text-2xs px-1.5 py-0.5 rounded capitalize font-medium ${
+                              run.failed === 0 && run.status === 'completed'
+                                ? 'bg-forest-50 text-forest-700'
+                                : run.failed > 0 ? 'bg-red-50 text-red-600'
+                                : 'bg-amber-50 text-amber-700'
+                            }`}>{run.status}</span>
+                          </div>
+                          <div className="text-2xs text-navy-800/40 mt-0.5">
+                            {run.passed}✓ {run.failed > 0 ? `${run.failed}✗ ` : ''}{run.skipped > 0 ? `${run.skipped} skipped ` : ''}
+                            · {new Date(run.created_at).toLocaleDateString('en-IN', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}
+                            {run.specialists?.name && ` · ${run.specialists.name}`}
+                          </div>
+                        </div>
+                        {run.total_tests > 0 && (
+                          <div className="text-right flex-shrink-0">
+                            <div className="text-sm font-semibold text-navy-800">{passRate}%</div>
+                            <div className="text-2xs text-navy-800/40">{run.total_tests} tests</div>
+                          </div>
+                        )}
+                        <span className={`text-navy-800/40 transition-transform ${isExpanded ? 'rotate-180' : ''}`}>▾</span>
+                      </button>
+
+                      {isExpanded && run.results && Array.isArray(run.results) && (
+                        <div className="px-5 pb-4 pt-1 bg-navy-50/30">
+                          <div className="space-y-1">
+                            {(run.results as any[]).map((res: any, ri: number) => (
+                              <div key={ri} className="flex items-start gap-2.5 py-1.5">
+                                <span className={`text-xs font-mono flex-shrink-0 ${
+                                  res.result === 'pass' ? 'text-forest-600' :
+                                  res.result === 'fail' ? 'text-red-600' :
+                                  'text-navy-800/40'
+                                }`}>
+                                  {res.result === 'pass' ? '✓' : res.result === 'fail' ? '✗' : '·'}
+                                </span>
+                                <div className="flex-1 min-w-0">
+                                  <span className="text-xs text-navy-800/60 font-mono">{res.module} · {res.test}</span>
+                                  <span className="text-xs text-navy-800/40 ml-2">{res.message}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
+        )}
+
       </main>
     </div>
   )

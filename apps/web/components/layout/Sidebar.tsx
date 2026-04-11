@@ -5,7 +5,7 @@ import Image from 'next/image'
 import {
   LayoutDashboard, Users, FileText, Calendar, MessageCircle,
   ClipboardList, Sparkles, Mic, Activity, Bell, BookOpen,
-  Settings, ChevronLeft, Menu, X,
+  Settings, ChevronLeft, Menu, X, Building2,
 } from 'lucide-react'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -16,6 +16,12 @@ type Specialist = {
   specialty: string
   role: string
   photo?: string
+}
+
+type SidebarProps = {
+  specialist: Specialist
+  orgId?:    string | null
+  orgRole?:  string | null
 }
 
 const SPECIALTY_SHORT: Record<string, string> = {
@@ -80,7 +86,7 @@ const NAV_GROUPS = [
   },
 ]
 
-export default function Sidebar({ specialist }: { specialist: Specialist }) {
+export default function Sidebar({ specialist, orgId, orgRole }: SidebarProps) {
   const pathname = usePathname()
   const router   = useRouter()
   const [collapsed, setCollapsed] = useState(false)
@@ -151,7 +157,7 @@ export default function Sidebar({ specialist }: { specialist: Specialist }) {
           </div>
         ))}
 
-        {/* Admin */}
+        {/* System — Super Admin */}
         {specialist.role === 'admin' && (
           <div>
             {!collapsed && <div className="sidebar-section-label px-3 mb-1">System</div>}
@@ -161,6 +167,21 @@ export default function Sidebar({ specialist }: { specialist: Specialist }) {
             >
               <Settings size={18} className="sidebar-icon flex-shrink-0" />
               {!collapsed && <span>Admin</span>}
+            </button>
+          </div>
+        )}
+
+        {/* Org Admin — org owners and admins */}
+        {specialist.role !== 'admin' && orgId && orgRole && ['owner','admin'].includes(orgRole) && (
+          <div>
+            {!collapsed && <div className="sidebar-section-label px-3 mb-1">Organisation</div>}
+            <button
+              onClick={() => { router.push(`/org-admin/${orgId}`); setMobileOpen(false) }}
+              title={collapsed ? 'Org Admin' : undefined}
+              className={`sidebar-item w-full ${isActive('/org-admin') ? 'sidebar-item-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}
+            >
+              <Building2 size={18} className="sidebar-icon flex-shrink-0" />
+              {!collapsed && <span>Org Admin</span>}
             </button>
           </div>
         )}

@@ -173,9 +173,9 @@ export default function AdminDashboardClient({ admin, summary, orgs, plans, defa
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>
-              <button onClick={() => setShowNewOrg(true)}
+              <button onClick={() => router.push('/admin/orgs/new')}
                 className="bg-navy-800 text-white text-xs font-medium px-3 py-2 rounded-xl hover:bg-navy-900 transition-all">
-                + New org
+                + Provision org
               </button>
             </div>
           </div>

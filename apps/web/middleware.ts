@@ -10,7 +10,8 @@ const PUBLIC_ROUTES = [
   '/api/',       // API routes handle their own auth internally
 ]
 
-const ADMIN_ROUTES = ['/admin']
+const ADMIN_ROUTES    = ['/admin']
+const ORG_ADMIN_ROUTES = ['/org-admin']
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -34,8 +35,9 @@ export async function middleware(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   const pathname = request.nextUrl.pathname
 
-  const isPublicRoute = PUBLIC_ROUTES.some(r => pathname.startsWith(r))
-  const isAdminRoute  = ADMIN_ROUTES.some(r => pathname.startsWith(r))
+  const isPublicRoute   = PUBLIC_ROUTES.some(r => pathname.startsWith(r))
+  const isAdminRoute    = ADMIN_ROUTES.some(r => pathname.startsWith(r))
+  const isOrgAdminRoute = ORG_ADMIN_ROUTES.some(r => pathname.startsWith(r))
 
   // Unauthenticated — redirect to login except for public routes
   if (!user && !isPublicRoute) {
@@ -53,6 +55,14 @@ export async function middleware(request: NextRequest) {
       url.pathname = '/dashboard'
       return NextResponse.redirect(url)
     }
+  }
+
+  // Org Admin route — must be authenticated (org-level access check done inside the layout/actions)
+  if (!user && isOrgAdminRoute) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/auth/login'
+    url.searchParams.set('redirectTo', pathname)
+    return NextResponse.redirect(url)
   }
 
   // Authenticated user on login page — redirect to dashboard
