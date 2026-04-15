@@ -197,11 +197,9 @@ export default function DashboardClient({
   const router = useRouter()
   const [dismissedBanner, setDismissedBanner] = useState(false)
 
-  const firstName  = specialist.name.split(' ').find(p => p.length > 1) ?? specialist.name.split(' ')[0]
-  const greeting   = (() => {
-    const h = new Date().getHours()
-    return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'
-  })()
+  // Strip "Dr." / "Dr " prefix so we never render "Dr. Dr. Arjun"
+  const cleanName  = specialist.name.replace(/^dr\.?\s+/i, '').trim()
+  const firstName  = cleanName.split(' ')[0] || 'Doctor'
   const monthTrend    = volume.thisMonth - volume.lastMonth
   const ytdTrend      = volume.ytd - volume.lastYearYtd
   const pipelineTotal = pipeline.needsResponse + pipeline.inProgress
@@ -213,7 +211,7 @@ export default function DashboardClient({
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl font-bold text-navy-800 leading-tight">
-            {greeting}, Dr. {firstName}
+            Hi, Dr. {firstName}
           </h1>
           <p className="text-sm text-navy-800/50 mt-0.5">
             {SPECIALTY_LABEL[specialist.specialty] ?? specialist.specialty} · {specialist.city}

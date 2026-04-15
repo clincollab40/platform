@@ -1,7 +1,6 @@
 import Sidebar from './Sidebar'
 import TopNav  from './TopNav'
 import InsightPanel, { type InsightData } from './InsightPanel'
-import WhatsAppFloat from './WhatsAppFloat'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 
 type Specialist = {
@@ -55,8 +54,6 @@ export default async function AppLayout({ children, specialist, insightData }: P
         </div>
       </div>
 
-      {/* Floating WhatsApp */}
-      <WhatsAppFloat />
     </div>
   )
 }
