@@ -1318,12 +1318,12 @@ BEGIN
   ) THEN
     INSERT INTO network_health_snapshots
       (specialist_id, snapshot_date, active_count, drifting_count, silent_count,
-       total_count, health_score, new_referrals_this_month)
+       total_referrers, health_score, new_count)
     SELECT
       v_spec,
       (CURRENT_DATE - (m.months_ago || ' months')::INTERVAL)::DATE,
       m.active, m.drifting, m.silent,
-      m.active + m.drifting + m.silent + m.new_count, m.score, m.new_refs
+      m.active + m.drifting + m.silent + m.new_c, m.score, m.new_c
     FROM (VALUES
       (5, 4, 3, 4, 2, 62, 3),
       (4, 4, 3, 5, 1, 60, 4),
@@ -1331,7 +1331,7 @@ BEGIN
       (2, 5, 3, 4, 2, 70, 4),
       (1, 5, 3, 4, 2, 72, 6),
       (0, 5, 3, 4, 2, 74, 5)
-    ) AS m(months_ago, active, drifting, silent, new_count, score, new_refs);
+    ) AS m(months_ago, active, drifting, silent, new_c, score, new_refs);
   END IF;
 END $$;
 
