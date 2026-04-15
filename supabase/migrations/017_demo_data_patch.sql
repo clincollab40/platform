@@ -330,24 +330,24 @@ ON CONFLICT DO NOTHING;
 -- Suresh Naidu (workup_in_progress — some done, some pending)
 INSERT INTO procedure_workup
   (plan_id, specialist_id, investigation, category, mandatory, status,
-   result_value, result_date, is_abnormal, abnormal_action, notes, sort_order)
+   result_value, result_date, is_abnormal, abnormal_action, sort_order)
 SELECT
   (SELECT id FROM procedure_plans WHERE patient_name = 'Suresh Naidu'
      AND specialist_id = (SELECT id FROM specialists ORDER BY created_at LIMIT 1) LIMIT 1),
   (SELECT id FROM specialists ORDER BY created_at LIMIT 1),
   w.item, w.cat, w.mandatory, w.status::workup_status,
   w.result, CASE WHEN w.result IS NOT NULL THEN CURRENT_DATE - (w.days_ago || ' days')::INTERVAL ELSE NULL END,
-  w.abnormal, w.abnormal_action, w.notes, w.ord
+  w.abnormal, w.abnormal_action, w.ord
 FROM (VALUES
-  ('Serum Creatinine + eGFR',    'blood',   TRUE, 'reviewed_abnormal',  'Cr 1.8, eGFR 36. CKD Stage 3b. Contrast limit: max 100ml iodixanol. Pre-hydration MANDATORY.', 1, TRUE, 'Contrast limit set <100ml iso-osmolar. 12h IV pre-hydration protocol initiated. Nephrology aware.', 2),
-  ('CBC + Coagulation (INR)',     'blood',   TRUE, 'reviewed_normal',    'Hb 12.1, Plt 195K, INR 1.1. Normal.',                                                           1, FALSE, NULL, 1),
-  ('Serum Potassium + Sodium',    'blood',   TRUE, 'reviewed_normal',    'K+ 4.2, Na+ 139. Normal.',                                                                       1, FALSE, NULL, 3),
-  ('Fasting Blood Glucose',       'blood',   TRUE, 'reviewed_acceptable','FBG 142 mg/dL. T2DM. Metformin held from yesterday. Glipizide continued.',                      1, FALSE, 'Acceptable for procedure. Target glucose <180 intra-procedure.', 1),
-  ('ECG (12-lead)',               'cardiac', TRUE, 'reviewed_normal',    'Sinus rhythm. Old inferior Q waves. ST changes consistent with prior inferior MI.',             1, FALSE, 'Consistent with prior inferior wall MI from old CATH. No new changes.', 1),
-  ('Contrast allergy screen',     'other',   TRUE, 'reviewed_normal',    'No prior contrast reaction. No iodine/seafood allergy.',                                        2, FALSE, NULL, 1),
-  ('IVUS catheter availability',  'other',   FALSE,'ordered',            NULL, NULL, FALSE, 'IVUS requested for ISR evaluation. Cath lab coordinator to confirm availability.', 4),
-  ('Pre-hydration IV (NaCl 0.9%)','other',   TRUE, 'not_ordered',        NULL, NULL, FALSE, 'To start tonight — nurse to initiate 0.9% NaCl 100ml/h from 22:00. Urine output monitor.', 5)
-) AS w(item, cat, mandatory, status, result, days_ago, abnormal, abnormal_action, notes, ord)
+  ('Serum Creatinine + eGFR',    'blood',   TRUE, 'reviewed_abnormal',  'Cr 1.8, eGFR 36. CKD Stage 3b.',                                            1,    TRUE,  'Contrast limit <100ml iso-osmolar. 12h IV pre-hydration protocol. Nephrology aware.', 2),
+  ('CBC + Coagulation (INR)',     'blood',   TRUE, 'reviewed_normal',    'Hb 12.1, Plt 195K, INR 1.1. Normal.',                                       1,    FALSE, NULL,                                                                                 1),
+  ('Serum Potassium + Sodium',    'blood',   TRUE, 'reviewed_normal',    'K+ 4.2, Na+ 139. Normal.',                                                  1,    FALSE, NULL,                                                                                 3),
+  ('Fasting Blood Glucose',       'blood',   TRUE, 'reviewed_acceptable','FBG 142 mg/dL. Metformin held. Glipizide continued.',                       1,    FALSE, 'Target glucose <180 intra-procedure.',                                               1),
+  ('ECG (12-lead)',               'cardiac', TRUE, 'reviewed_normal',    'Sinus rhythm. Old inferior Q waves. No new changes.',                       1,    FALSE, 'Consistent with prior inferior MI — no acute changes.',                               1),
+  ('Contrast allergy screen',     'other',   TRUE, 'reviewed_normal',    'No prior contrast reaction. No iodine/seafood allergy.',                    2,    FALSE, NULL,                                                                                 1),
+  ('IVUS catheter availability',  'other',   FALSE,'ordered',            NULL,                                                                         NULL, FALSE, 'Cath lab coordinator to confirm IVUS availability for ISR evaluation.',             4),
+  ('Pre-hydration IV (NaCl 0.9%)','other',   TRUE, 'not_ordered',        NULL,                                                                         NULL, FALSE, 'Start 0.9% NaCl 100ml/h from 22:00 tonight. Monitor urine output.',                 5)
+) AS w(item, cat, mandatory, status, result, days_ago, abnormal, abnormal_action, ord)
 ON CONFLICT DO NOTHING;
 
 -- Vijay Mehrotra (scheduled — basic workup ordered, procedure in 2 weeks)
