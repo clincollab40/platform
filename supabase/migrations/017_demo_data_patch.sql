@@ -410,10 +410,10 @@ SELECT
   h.drug, h.drug_class, h.hold_days, CURRENT_DATE + (2 - h.hold_days || ' days')::INTERVAL,
   h.resume_when, h.reason, h.patient_confirmed, TRUE, FALSE
 FROM (VALUES
-  ('Metformin 1000mg BD',         'antidiabetic',   1, 'Lactic acidosis risk with contrast in CKD Stage 3 (Cr 1.8). MANDATORY hold — explain to patient.', FALSE),
-  ('Furosemide 40mg OD',          'diuretic',       1, 'Hold morning of procedure only — dehydration risk during pre-hydration for contrast nephropathy',  FALSE),
-  ('Ramipril 5mg',                'ace_inhibitor',  1, 'Hold 24h peri-procedure: renal protection in CKD. Patient instructed.',                             TRUE)
-) AS h(drug, drug_class, hold_days, reason, patient_confirmed)
+  ('Metformin 1000mg BD',  'antidiabetic',  1, 'After 48h post-procedure if creatinine stable',          'Lactic acidosis risk with contrast in CKD Stage 3 (Cr 1.8). MANDATORY hold — explain to patient.', FALSE),
+  ('Furosemide 40mg OD',   'diuretic',      1, 'Resume evening after procedure',                          'Hold morning of procedure only — dehydration risk during pre-hydration for contrast nephropathy',   FALSE),
+  ('Ramipril 5mg',         'ace_inhibitor', 1, 'Resume 48h post-procedure when creatinine stable',        'Hold 24h peri-procedure: renal protection in CKD. Patient instructed.',                            TRUE)
+) AS h(drug, drug_class, hold_days, resume_when, reason, patient_confirmed)
 ON CONFLICT DO NOTHING;
 
 -- 3c: Vijay Mehrotra — Elective Angiography
