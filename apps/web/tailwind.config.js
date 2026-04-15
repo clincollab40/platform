@@ -76,7 +76,7 @@ module.exports = {
       spacing: {
         'sidebar': '240px',
         'topnav':  '56px',
-        'insight': '288px',
+        'insight': '340px',
       },
       animation: {
         'fade-in':    'fadeIn 0.4s ease-out',
