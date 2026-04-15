@@ -1,6 +1,6 @@
 'use server'
 
-import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { createClient }   from '@supabase/supabase-js'
 import { redirect }       from 'next/navigation'
 import { revalidatePath } from 'next/cache'
