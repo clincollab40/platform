@@ -1353,19 +1353,19 @@ BEGIN
   IF v_exists AND NOT EXISTS (
     SELECT 1 FROM referral_logs WHERE specialist_id = v_spec LIMIT 1
   ) THEN
-    INSERT INTO referral_logs (specialist_id, referrer_id, event_type, event_date)
+    INSERT INTO referral_logs (specialist_id, referrer_id, case_type, referred_on)
     SELECT
       v_spec,
       r.id,
-      e.event_type,
-      CURRENT_DATE - (e.days_ago || ' days')::INTERVAL
+      e.ctype::case_type,
+      (CURRENT_DATE - (e.days_ago || ' days')::INTERVAL)::DATE
     FROM referrers r
     CROSS JOIN (VALUES
-      ('new_referral', 2),   ('new_referral', 8),  ('new_referral', 15),
-      ('new_referral', 22),  ('new_referral', 30),  ('new_referral', 45),
-      ('new_referral', 60),  ('new_referral', 90),
-      ('follow_up',    5),   ('follow_up',    12),  ('follow_up',    25)
-    ) AS e(event_type, days_ago)
+      ('procedure',        2),  ('procedure',        8),  ('procedure',       15),
+      ('procedure',       22),  ('procedure',       30),  ('procedure',       45),
+      ('procedure',       60),  ('procedure',       90),
+      ('opd_consultation', 5),  ('opd_consultation', 12), ('opd_consultation', 25)
+    ) AS e(ctype, days_ago)
     WHERE r.specialist_id = v_spec
       AND r.status = 'active'
     LIMIT 50;
